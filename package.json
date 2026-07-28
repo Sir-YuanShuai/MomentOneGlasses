@@ -1,0 +1,15 @@
+{
+  "name": "moment-one-aiui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "一刻 YiKe · Moment One — AI-native personal memory system for Rokid AI Glasses",
+  "main": "app.js",
+  "keywords": [
+    "aiui",
+    "rokid",
+    "personal-memory",
+    "multimodal-ai"
+  ],
+  "dependencies": {}
+}
