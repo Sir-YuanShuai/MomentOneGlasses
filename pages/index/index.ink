@@ -9,6 +9,14 @@
         "locationName": {
           "type": "string",
           "description": "宿主或上游 Agent 提供的当前地点名称"
+        },
+        "localDebug": {
+          "type": "string",
+          "description": "仅本地 Ink Web 调试使用的能力桥接开关"
+        },
+        "localDebugPhotoEndpoint": {
+          "type": "string",
+          "description": "仅本地调试使用的预置照片读取地址"
         }
       }
     }
@@ -31,6 +39,8 @@ export default {
     transcript: '',
     photoCaptured: false,
     locationName: '',
+    localDebug: false,
+    localDebugPhotoEndpoint: '',
     lastMoment: null,
     focusIndex: 0,
     errorMessage: ''
@@ -38,8 +48,12 @@ export default {
 
   onLoad(input) {
     wx.setBackgroundColor({ backgroundColor: '#000000' });
-    if (input && input.locationName) {
-      this.setData({ locationName: input.locationName });
+    if (input) {
+      this.setData({
+        locationName: input.locationName || '',
+        localDebug: input.localDebug === true || input.localDebug === 'true',
+        localDebugPhotoEndpoint: input.localDebugPhotoEndpoint || ''
+      });
     }
   },
 
@@ -68,6 +82,10 @@ export default {
   },
 
   async capturePhoto() {
+    if (this.data.localDebug && this.data.localDebugPhotoEndpoint) {
+      return this.captureLocalDebugPhoto();
+    }
+
     try {
       const camera = wx.media.createCameraContext();
       if (!camera) return null;
@@ -81,6 +99,38 @@ export default {
       console.warn('Camera capture unavailable:', error);
       return null;
     }
+  },
+
+  async captureLocalDebugPhoto() {
+    try {
+      const response = await fetch(this.data.localDebugPhotoEndpoint, {
+        cache: 'no-store'
+      });
+      if (!response.ok) {
+        console.warn('Local debug photo unavailable:', response.status);
+        return null;
+      }
+
+      const payload = JSON.parse(await response.text());
+      if (!payload.base64) return null;
+      const mimeType = payload.mimeType || 'image/jpeg';
+      this.setData({ photoCaptured: true });
+      return {
+        mimeType,
+        imageDataUrl: `data:${mimeType};base64,${payload.base64}`
+      };
+    } catch (error) {
+      console.warn('Local debug photo bridge unavailable:', error);
+      return null;
+    }
+  },
+
+  createId() {
+    const cryptoApi = globalThis.crypto;
+    if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+      return cryptoApi.randomUUID();
+    }
+    return `moment-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   },
 
   startRecognition() {
@@ -170,14 +220,14 @@ export default {
       });
       const now = new Date().toISOString();
       const moment = {
-        id: crypto.randomUUID(),
+        id: this.createId(),
         userId: 'local-user',
         title: analysis.title,
         occurredAt: timestamp,
         timezone: 'Asia/Shanghai',
         location,
         media: photo ? [{
-          id: crypto.randomUUID(),
+          id: this.createId(),
           type: 'image',
           mimeType: photo.mimeType,
           localDataUrl: photo.imageDataUrl

@@ -26,8 +26,14 @@ Moment One 是面向 Rokid AI Glasses 的 AI 原生个人生活记忆系统。�
 ├── AGENTS.md
 ├── app.js
 ├── app.json
+├── dev/
+│   ├── check.mjs
+│   ├── index.html
+│   ├── main.js
+│   └── vite.config.js
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── LOCAL_DEVELOPMENT.md
 │   ├── MVP_PLAN.md
 │   ├── api/openapi.yaml
 │   └── database/schema.sql
@@ -42,16 +48,41 @@ Moment One 是面向 Rokid AI Glasses 的 AI 原生个人生活记忆系统。�
     └── moment-ai.js
 ```
 
-## 运行
+## 本地开发与调试
 
-使用 AIUI/JSUI Agent 开发环境打开项目，并按照当前宿主工具链完成依赖安装与开发服务器启动。项目本身不引入第三方 npm 依赖。
+安装依赖并启动 Ink Web 本地预览：
 
-设备端需要提供以下能力：
+```bash
+npm install
+npm run check
+npm run dev
+```
+
+默认预览地址：
+
+```text
+http://127.0.0.1:5173/
+```
+
+本地调试环境使用 Vite 加载项目文件，并通过 `@yodaos-pkg/ink` 在 448 × 352 Canvas 中运行 AIUI 页面。可以调试页面渲染、路由、状态、键盘事件、本地存储和降级逻辑。
+
+调试工作台同时提供模拟/真实浏览器语音、模拟/真实浏览器照片和可选 LanguageModel 代理。默认使用模拟语音、模拟照片和模型离线降级，无需设备权限即可验证完整记录流程。
+
+构建静态预览产物：
+
+```bash
+npm run build:preview
+```
+
+详细安装过程、调试方法、能力边界和真机联调清单见 [AIUI 本地开发与调试环境](./docs/LOCAL_DEVELOPMENT.md)。
+
+设备端最终需要验证以下能力：
 
 - `SpeechRecognition`
 - `wx.media.createCameraContext()`
 - `LanguageModel`（可选，有确定性降级）
 - `wx` storage
+- Rokid 实体按键与设备生命周期
 
 ## 架构文档
 

@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Moment One AIUI Local Preview</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #111411;
+      color: #e4f5e4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-width: 920px;
+      min-height: 640px;
+      margin: 0;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 46% 42%, rgba(64, 255, 94, 0.08), transparent 34%),
+        #111411;
+    }
+
+    .workspace {
+      width: 100%;
+      min-height: 100vh;
+      padding: 28px;
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 340px;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .preview-column {
+      min-width: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .device-frame {
+      width: 482px;
+      padding: 16px;
+      border: 1px solid rgba(103, 255, 122, 0.26);
+      border-radius: 18px;
+      background: #070907;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
+    }
+
+    .device-label {
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      color: #8ca28e;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .canvas-shell {
+      width: 450px;
+      height: 354px;
+      overflow: hidden;
+      border: 1px solid rgba(103, 255, 122, 0.2);
+      background: #000000;
+    }
+
+    #ink-root {
+      display: block;
+      width: 448px;
+      height: 352px;
+      outline: none;
+      background: #000000;
+    }
+
+    #ink-root:focus-visible {
+      outline: 2px solid #67ff7a;
+      outline-offset: -2px;
+    }
+
+    .panel {
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      padding: 18px;
+      border: 1px solid rgba(103, 255, 122, 0.22);
+      border-radius: 14px;
+      background: rgba(5, 9, 5, 0.9);
+    }
+
+    .panel-title {
+      margin: 0 0 4px;
+      color: #a8ffb2;
+      font-size: 18px;
+      line-height: 24px;
+    }
+
+    .panel-subtitle {
+      margin: 0 0 18px;
+      color: #7f9381;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .field {
+      margin-top: 12px;
+    }
+
+    .field:first-of-type {
+      margin-top: 0;
+    }
+
+    label,
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      color: #a7b7a8;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    select,
+    input,
+    button {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid rgba(103, 255, 122, 0.3);
+      border-radius: 8px;
+      background: #0c120d;
+      color: #d9f7dc;
+      font: inherit;
+    }
+
+    select,
+    input {
+      padding: 0 10px;
+    }
+
+    button {
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: #67ff7a;
+      color: #67ff7a;
+    }
+
+    .section {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(103, 255, 122, 0.14);
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      color: #a8b9aa;
+      font-size: 12px;
+      line-height: 18px;
+      font-weight: 700;
+    }
+
+    .status-line {
+      margin: 5px 0 0;
+      color: #b7c8b9;
+      font-size: 12px;
+      line-height: 18px;
+      word-break: break-word;
+    }
+
+    .status-line[data-state="ready"] {
+      color: #67ff7a;
+    }
+
+    .status-line[data-state="active"] {
+      color: #d5ff73;
+    }
+
+    .status-line[data-state="warning"] {
+      color: #ffd479;
+    }
+
+    .status-line[data-state="error"] {
+      color: #ff8c8c;
+    }
+
+    .status-label {
+      margin-top: 9px;
+      color: #768a78;
+      font-size: 11px;
+      line-height: 16px;
+    }
+
+    #photo-preview {
+      display: none;
+      width: 100%;
+      max-height: 150px;
+      margin-top: 10px;
+      object-fit: contain;
+      border: 1px solid rgba(103, 255, 122, 0.22);
+      border-radius: 8px;
+      background: #000000;
+    }
+
+    #photo-preview.is-visible {
+      display: block;
+    }
+
+    .llm-state {
+      margin: 0;
+      padding: 9px 10px;
+      border: 1px solid rgba(103, 255, 122, 0.16);
+      border-radius: 8px;
+      color: #8fa291;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .llm-state.is-enabled {
+      color: #67ff7a;
+    }
+
+    .config-list {
+      margin: 0 0 10px;
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 6px 10px;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .config-list dt {
+      color: #718373;
+    }
+
+    .config-list dd {
+      min-width: 0;
+      margin: 0;
+      color: #b7c8b9;
+      word-break: break-all;
+    }
+
+    .field-help {
+      margin: 7px 0 0;
+      color: #718373;
+      font-size: 11px;
+      line-height: 16px;
+    }
+
+    .tips {
+      margin: 14px 0 0;
+      padding-left: 18px;
+      color: #839684;
+      font-size: 12px;
+      line-height: 19px;
+    }
+
+    code {
+      color: #b7ffbf;
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="preview-column" aria-label="AIUI 页面预览">
+      <div class="device-frame">
+        <div class="device-label">
+          <span>Moment One · Ink Runtime</span>
+          <span>448 × 352</span>
+        </div>
+        <div class="canvas-shell">
+          <canvas id="ink-root" width="448" height="352" tabindex="0"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h1 class="panel-title">本地能力调试</h1>
+      <p class="panel-subtitle">可使用浏览器真实能力，也可切换到确定性模拟模式。</p>
+
+      <div class="field">
+        <label for="page-select">入口页面</label>
+        <select id="page-select"></select>
+      </div>
+      <button id="reload-button" type="button">重新加载 Ink Bundle</button>
+
+      <section class="section">
+        <h2 class="section-title">语音识别</h2>
+        <div class="field">
+          <label for="speech-mode">语音模式</label>
+          <select id="speech-mode">
+            <option value="mock">模拟语音</option>
+            <option value="browser">浏览器麦克风</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="mock-transcript">模拟识别文本</label>
+          <input id="mock-transcript" value="今天在西湖边散步，阳光很好">
+        </div>
+        <div class="status-label">语音状态</div>
+        <p id="speech-status" class="status-line">等待应用调用 SpeechRecognition</p>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">摄像头</h2>
+        <div class="field">
+          <label for="camera-mode">摄像头模式</label>
+          <select id="camera-mode">
+            <option value="mock">模拟照片</option>
+            <option value="browser">浏览器摄像头</option>
+          </select>
+        </div>
+        <button id="prepare-photo-button" type="button">准备并测试照片</button>
+        <div class="status-label">摄像头状态</div>
+        <p id="camera-status" class="status-line">等待准备本地调试照片</p>
+        <img id="photo-preview" alt="最近一次本地调试照片">
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">LanguageModel 代理</h2>
+        <dl class="config-list">
+          <dt>Endpoint</dt><dd id="llm-endpoint-value">未配置</dd>
+          <dt>Model</dt><dd id="llm-model-value">未配置</dd>
+          <dt>认证</dt><dd id="llm-auth-value">未配置</dd>
+          <dt>配置来源</dt><dd>.env.local / 进程环境变量</dd>
+        </dl>
+        <button id="test-llm-button" type="button">测试真实 LLM 代理</button>
+        <p class="field-help">修改 .env.local 后需要重启 npm run dev。密钥不会进入浏览器 Bundle。</p>
+        <p id="llm-state" class="llm-state"></p>
+      </section>
+
+      <section class="section">
+        <div class="status-label">Runtime 状态</div>
+        <p id="runtime-status" class="status-line">正在初始化 Ink Runtime</p>
+
+        <ul class="tips">
+          <li>在记录页点击“记录这一刻”会同时触发语音和摄像头。</li>
+          <li>首次使用真实能力时允许 Chrome 的摄像头和麦克风权限。</li>
+          <li>使用 Chrome DevTools 查看 Console 和 Network。</li>
+          <li>实体按键、功耗和设备侧模型仍需真机验证。</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
