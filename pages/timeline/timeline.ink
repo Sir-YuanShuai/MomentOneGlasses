@@ -15,12 +15,15 @@
 import wx from 'wx';
 import { listMoments } from '../../services/memory-store.js';
 import { presentTimeline } from '../../services/format.js';
+import { CONTROL, moveFocus, resolveControl } from '../../services/controls.js';
 
 export default {
   data: {
     moments: [],
     count: 0,
-    focusIndex: 0
+    focusIndex: 0,
+    activeAnchor: '',
+    interactionHint: '上下浏览，点击键朗读；返回键退出'
   },
 
   onLoad() {
@@ -33,33 +36,93 @@ export default {
   },
 
   loadTimeline() {
-    const moments = presentTimeline(listMoments());
-    this.setData({ moments, count: moments.length });
+    const timeline = presentTimeline(listMoments());
+    const total = timeline.length + 2;
+    const focusIndex = Math.min(this.data.focusIndex || 0, total - 1);
+    const moments = timeline.map((moment, index) => ({
+      ...moment,
+      focusIndex: index,
+      anchorId: `moment-${index}`,
+      focusClass: focusIndex === index ? 'is-focused' : ''
+    }));
+    this.setData({
+      moments,
+      count: moments.length,
+      focusIndex,
+      activeAnchor: focusIndex < moments.length ? moments[focusIndex].anchorId : ''
+    });
   },
 
   goBack() {
-    wx.navigateBack();
+    wx.navigateBack({ delta: 1 });
   },
 
   openSearch() {
     wx.navigateTo({ url: '/pages/search/search' });
   },
 
+  openVoiceSearch() {
+    wx.navigateTo({ url: '/pages/search/search?initialListen=true' });
+  },
+
+  speakFocusedMoment() {
+    const moment = this.data.moments[this.data.focusIndex];
+    if (!moment) return;
+    this.setData({ interactionHint: `正在朗读：${moment.title}` });
+    try {
+      wx.speech.playTTS(`${moment.title}。${moment.aiSummary || ''}`);
+    } catch (error) {
+      console.warn('Timeline TTS unavailable:', error);
+      this.setData({ interactionHint: moment.aiSummary || moment.title });
+    }
+  },
+
   activateFocused() {
-    if (this.data.focusIndex === 0) this.goBack();
-    if (this.data.focusIndex === 1) this.openSearch();
+    if (this.data.focusIndex < this.data.count) {
+      this.speakFocusedMoment();
+      return;
+    }
+    if (this.data.focusIndex === this.data.count) this.goBack();
+    if (this.data.focusIndex === this.data.count + 1) this.openSearch();
+  },
+
+  moveTimelineFocus(delta) {
+    const total = this.data.count + 2;
+    const focusIndex = moveFocus(this.data.focusIndex, total, delta);
+    this.setData({
+      moments: this.data.moments.map((moment) => ({
+        ...moment,
+        focusClass: moment.focusIndex === focusIndex ? 'is-focused' : ''
+      })),
+      focusIndex,
+      activeAnchor: focusIndex < this.data.count
+        ? this.data.moments[focusIndex].anchorId
+        : '',
+      interactionHint: focusIndex < this.data.count
+        ? '上下浏览，点击键朗读；返回键退出'
+        : '点击键确认当前操作'
+    });
+  },
+
+  onVoiceWakeup(event) {
+    console.log('Timeline voice wakeup:', event && event.keyword);
+    this.openVoiceSearch();
   },
 
   onKeyUp(event) {
-    if (event.code === 'Enter') {
-      event.preventDefault();
+    const control = resolveControl(event.code);
+    if (!control) return;
+    event.preventDefault();
+
+    if (control === CONTROL.BACK) {
+      this.goBack();
+      return;
+    }
+    if (control === CONTROL.ACTIVATE) {
       this.activateFocused();
       return;
     }
-    if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
-      event.preventDefault();
-      this.setData({ focusIndex: this.data.focusIndex === 0 ? 1 : 0 });
-    }
+    this.moveTimelineFocus(control === CONTROL.NEXT ? 1 : -1);
   }
 }
 </script>
@@ -74,7 +137,7 @@ export default {
       <text class="count-label">{{ count }} 个瞬间</text>
     </view>
 
-    <scroll-view class="timeline-scroll" scroll-y="true">
+    <scroll-view class="timeline-scroll" scroll-y="true" scroll-into-view="{{ activeAnchor }}">
       <view class="empty-state" ink:if="{{ moments.length === 0 }}">
         <view class="empty-mark"><text>记</text></view>
         <text class="empty-title">时间线还没有内容</text>
@@ -82,14 +145,15 @@ export default {
       </view>
 
       <view class="timeline-list" ink:else>
-        <view class="timeline-entry" ink:for="{{ moments }}" ink:key="id">
+        <view ink:for="{{ moments }}" ink:key="id">
+          <view id="{{ item.anchorId }}" class="timeline-entry">
           <text class="date-divider" ink:if="{{ item.showDate }}">{{ item.dateLabel }}</text>
           <view class="moment-row">
             <view class="time-column">
               <text class="time-label">{{ item.timeLabel }}</text>
               <view class="time-line"></view>
             </view>
-            <card class="moment-card" role="group">
+            <card class="moment-card {{ item.focusClass }}" role="group">
               <view class="moment-heading">
                 <view class="category-mark"><text>{{ item.categoryMark }}</text></view>
                 <view class="moment-copy">
@@ -101,13 +165,16 @@ export default {
               <text class="moment-tags">{{ item.tagsText }}</text>
             </card>
           </view>
+          </view>
         </view>
       </view>
     </scroll-view>
 
-    <view class="action-row">
-      <button class="secondary-action {{ focusIndex === 0 ? 'is-focused' : '' }}" bindtap="goBack">返回记录</button>
-      <button class="primary-action {{ focusIndex === 1 ? 'is-focused' : '' }}" bindtap="openSearch">问问记忆</button>
+    <text class="interaction-hint">{{ interactionHint }}</text>
+
+    <view id="timeline-actions" class="action-row">
+      <button class="secondary-action {{ focusIndex === count ? 'is-focused' : '' }}" bindtap="goBack">返回记录</button>
+      <button class="primary-action {{ focusIndex === count + 1 ? 'is-focused' : '' }}" bindtap="openSearch">问问记忆</button>
     </view>
   </view>
 </page>
@@ -117,17 +184,18 @@ export default {
   width: 448px;
   height: 352px;
   box-sizing: border-box;
-  padding: var(--spacing-md);
+  padding: 10px 12px;
   background-color: var(--color-background);
   color: var(--color-text-primary);
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
+  gap: 6px;
 }
 
 .header-row {
-  height: 48px;
+  height: 44px;
   display: flex;
+  flex-direction: row;
   align-items: center;
 }
 
@@ -162,7 +230,7 @@ export default {
 
 .timeline-scroll {
   width: 100%;
-  height: 234px;
+  height: 190px;
 }
 
 .timeline-list, .timeline-entry {
@@ -186,6 +254,7 @@ export default {
 .moment-row {
   width: 100%;
   display: flex;
+  flex-direction: row;
   gap: var(--spacing-sm);
 }
 
@@ -223,6 +292,7 @@ export default {
 
 .moment-heading {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
 }
@@ -296,15 +366,23 @@ export default {
   line-height: 15px;
 }
 
+.interaction-hint {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
 .action-row {
-  height: 46px;
+  height: 40px;
   display: flex;
+  flex-direction: row;
   gap: var(--spacing-sm);
 }
 
 .primary-action, .secondary-action {
-  flex-grow: 1;
-  height: 40px;
+  width: 200px;
+  height: 38px;
   box-sizing: border-box;
   border-radius: var(--radius-md);
   font-size: 13px;

@@ -41,9 +41,16 @@ const canvas = document.querySelector('#ink-root');
 const pageSelect = document.querySelector('#page-select');
 const reloadButton = document.querySelector('#reload-button');
 const runtimeStatus = document.querySelector('#runtime-status');
+const runtimeChip = document.querySelector('#runtime-chip');
+const activePageLabel = document.querySelector('#active-page-label');
 const speechMode = document.querySelector('#speech-mode');
 const mockTranscript = document.querySelector('#mock-transcript');
 const speechStatus = document.querySelector('#speech-status');
+const speechSessionLabel = document.querySelector('#speech-session-label');
+const voiceConsole = document.querySelector('#voice-console');
+const voiceWakeupButton = document.querySelector('#voice-wakeup-button');
+const sendSpeechButton = document.querySelector('#send-speech-button');
+const keyButtons = Array.from(document.querySelectorAll('[data-key-code]'));
 const cameraMode = document.querySelector('#camera-mode');
 const cameraStatus = document.querySelector('#camera-status');
 const preparePhotoButton = document.querySelector('#prepare-photo-button');
@@ -58,10 +65,66 @@ let view = null;
 let hostCapabilities = null;
 let photoObjectUrl = '';
 let currentLlmConfig = null;
+let speechSessionState = { listening: false, mode: 'mock', canSubmit: false, sessionId: '' };
 
 function setStatus(element, message, state = '') {
   element.textContent = message;
   element.dataset.state = state;
+  if (element === runtimeStatus && runtimeChip) {
+    runtimeChip.dataset.state = state || 'loading';
+  }
+}
+
+function updateSpeechControls(nextState = {}) {
+  speechSessionState = { ...speechSessionState, ...nextState };
+  const listening = Boolean(speechSessionState.listening);
+  const manualInputEnabled = listening
+    && speechSessionState.canSubmit
+    && speechSessionState.mode === 'mock';
+
+  voiceConsole.dataset.listening = String(listening);
+  speechMode.disabled = listening;
+  mockTranscript.disabled = !manualInputEnabled;
+  mockTranscript.placeholder = listening
+    ? (manualInputEnabled ? '输入模拟语音消息，回车发送' : '浏览器麦克风正在监听…')
+    : '等待页面开启 STT…';
+  sendSpeechButton.disabled = !manualInputEnabled || !mockTranscript.value.trim();
+  voiceWakeupButton.disabled = !view || listening;
+
+  if (!listening) {
+    speechSessionLabel.textContent = 'STT 未监听';
+  } else if (speechSessionState.mode === 'mock') {
+    speechSessionLabel.textContent = 'STT 监听中 · 可发送';
+  } else {
+    speechSessionLabel.textContent = 'STT 监听中 · 麦克风';
+  }
+}
+
+function dispatchInkKey(code) {
+  if (!view) return;
+  const timestamp = Date.now();
+  view.notifyUserInteraction();
+  view.dispatchInput('keydown', code, timestamp);
+  view.dispatchInput('keyup', code, timestamp + 1);
+  view.requestRender();
+  canvas.focus();
+}
+
+function sendSpeechTranscript() {
+  if (!hostCapabilities) return;
+  const transcript = mockTranscript.value.trim();
+  const result = hostCapabilities.speech.submitTranscript(transcript);
+  if (result.ok) {
+    persistCapabilitySettings();
+    return;
+  }
+
+  const messages = {
+    'not-listening': '页面当前没有开启 STT，无法发送语音消息。',
+    'browser-mode': '浏览器麦克风模式不接受模拟文本，请直接说话。',
+    'empty-transcript': '请输入要发送的模拟语音消息。'
+  };
+  setStatus(speechStatus, messages[result.reason] || '语音消息发送失败。', 'warning');
 }
 
 function restoreCapabilitySettings() {
@@ -69,6 +132,7 @@ function restoreCapabilitySettings() {
   cameraMode.value = localStorage.getItem('moment-one-dev:camera-mode') || 'mock';
   mockTranscript.value =
     localStorage.getItem('moment-one-dev:mock-transcript') || mockTranscript.value;
+  activePageLabel.textContent = initialPage || '未选择页面';
 }
 
 function persistCapabilitySettings() {
@@ -169,20 +233,46 @@ async function preparePhoto() {
 
 restoreCapabilitySettings();
 renderPageOptions();
+updateSpeechControls({ mode: speechMode.value });
 
 pageSelect.addEventListener('change', reloadWithSelectedPage);
 reloadButton.addEventListener('click', () => {
   persistCapabilitySettings();
   window.location.reload();
 });
-speechMode.addEventListener('change', persistCapabilitySettings);
+speechMode.addEventListener('change', () => {
+  persistCapabilitySettings();
+  updateSpeechControls({ mode: speechMode.value, canSubmit: false });
+});
 cameraMode.addEventListener('change', () => {
   persistCapabilitySettings();
   if (cameraMode.value === 'mock') preparePhoto();
   else setStatus(cameraStatus, '点击“准备并测试照片”后允许 Chrome 摄像头权限', 'warning');
 });
 preparePhotoButton.addEventListener('click', preparePhoto);
+mockTranscript.addEventListener('input', () => {
+  sendSpeechButton.disabled = !speechSessionState.listening
+    || !speechSessionState.canSubmit
+    || !mockTranscript.value.trim();
+});
 mockTranscript.addEventListener('change', persistCapabilitySettings);
+mockTranscript.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    if (!sendSpeechButton.disabled) sendSpeechTranscript();
+  }
+});
+sendSpeechButton.addEventListener('click', sendSpeechTranscript);
+voiceWakeupButton.addEventListener('click', () => {
+  if (!view || speechSessionState.listening) return;
+  view.notifyUserInteraction();
+  view.dispatchVoiceWakeup('leqi');
+  canvas.focus();
+  setStatus(speechStatus, '已发送语音唤醒，等待页面开启 STT。', 'active');
+});
+keyButtons.forEach((button) => {
+  button.addEventListener('click', () => dispatchInkKey(button.dataset.keyCode));
+});
 testLlmButton.addEventListener('click', testLanguageModelProxy);
 
 window.addEventListener('error', (event) => {
@@ -215,6 +305,7 @@ async function startPreview() {
     getCameraMode: () => cameraMode.value,
     getMockTranscript: () => mockTranscript.value,
     onSpeechStatus: (message, state) => setStatus(speechStatus, message, state),
+    onSpeechSessionChange: updateSpeechControls,
     onCameraStatus: (message, state) => setStatus(cameraStatus, message, state),
     onPhoto: showPhoto
   });
@@ -227,7 +318,7 @@ async function startPreview() {
     hostCapabilities
   });
 
-  view.bindDomEvents();
+  view.bindDomEvents({ keyboardTarget: new EventTarget() });
   view.openBundle({
     appId: 'moment-one-local',
     files,
@@ -243,10 +334,13 @@ async function startPreview() {
     initialPage,
     launchQuery,
     hostCapabilities,
-    getLlmConfig: () => currentLlmConfig
+    getLlmConfig: () => currentLlmConfig,
+    dispatchKey: dispatchInkKey,
+    sendSpeechTranscript
   };
 
   canvas.focus();
+  updateSpeechControls(hostCapabilities.speech.getSessionState());
   setStatus(runtimeStatus, `运行中：${initialPage}`, 'ready');
   console.info('[preview] Ink bundle opened', { initialPage });
 

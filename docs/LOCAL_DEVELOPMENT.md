@@ -227,17 +227,18 @@ initialPage   当前入口页面
 launchQuery   页面启动参数
 ```
 
-### 键盘事件
+### UI 交互模拟控制
 
-点击 Canvas 获取焦点后测试：
+本地调试页不绑定电脑键盘。页面下方提供四个 UI 控制按钮，通过宿主输入事件模拟官方调试器操作：
 
 ```text
-Enter
-ArrowUp
-ArrowDown
-ArrowLeft
-ArrowRight
+返回 → Backspace
+点击 → Enter
+上滑 → ArrowUp
+下滑 → ArrowDown
 ```
+
+只有点击这些调试按钮时，按键事件才会发送给 InkView。电脑键盘输入保留给调试表单和浏览器本身，避免误触发应用状态。
 
 ## 9. 本地能力范围
 
@@ -246,7 +247,7 @@ ArrowRight
 | `.ink` 页面渲染 | 支持 | 使用 Ink Web Runtime |
 | 页面路由 | 支持 | `navigateTo`、`navigateBack` |
 | `setData` | 支持 | 可检查状态和模板更新 |
-| 键盘事件 | 支持 | 点击 Canvas 后测试 |
+| UI 按键模拟 | 支持 | 使用调试页下方四个控制按钮；电脑键盘映射已禁用 |
 | 本地存储 | 支持 | 以浏览器宿主实现为准 |
 | 摄像头 | 支持桥接调试 | 模拟照片或浏览器预拍摄；真机仍使用 CameraContext |
 | 麦克风 | 支持浏览器调试 | 浏览器 SpeechRecognition 或模拟识别 |
@@ -435,18 +436,24 @@ npm run dev
 LanguageModel：未配置，走离线降级
 ```
 
-在“模拟识别文本”中填写测试内容，例如：
+工作台启动时会自动生成一张模拟第一视角照片，并通过本地照片桥接保存。随后可点击底部“唤醒”，或使用 UI 的“点击”按钮激活记录页主操作。当页面真正调用 `SpeechRecognition.start()` 后，底部语音输入框和“发送语音”按钮才会解锁。
+
+输入测试内容，例如：
 
 ```text
 今天在西湖边散步，阳光很好
 ```
 
-工作台启动时会自动生成一张模拟第一视角照片，并通过本地照片桥接保存。随后在 Ink 页面点击“记录这一刻”。完整流程为：
+点击“发送语音”后，完整流程为：
 
 ```text
-SpeechRecognition.start()
+页面调用 SpeechRecognition.start()
   ↓
-Host Adapter 派发 speech.start / speech.result / speech.end
+Host Adapter 标记 STT 监听中并解锁调试输入
+  ↓
+用户点击“发送语音”
+  ↓
+Host Adapter 派发 speech.result / speech.end
   ↓
 记录页收到语音文本
 
@@ -609,8 +616,8 @@ Vite 代理在服务端读取 `AIUI_LLM_API_KEY` 并转发请求，因此密钥�
 
 | 状态 | 含义 |
 |---|---|
-| 等待应用调用 SpeechRecognition | 尚未开始语音识别 |
-| 模拟语音识别中 | 正在派发模拟识别事件 |
+| STT 未监听 | 页面尚未持有 SpeechRecognition，会禁用输入和发送 |
+| STT 监听中 · 可发送 | 模拟会话已建立，可从底部调试窗口发送文本 |
 | 浏览器语音识别中 | 麦克风识别已启动 |
 | 语音识别已结束 | 已派发最终结果和 end 事件 |
 | 模拟照片已捕获 | 模拟图已存入本地照片桥接 |
@@ -628,6 +635,20 @@ Vite 代理在服务端读取 `AIUI_LLM_API_KEY` 并转发请求，因此密钥�
 - 本地浏览器验证不能替代 Rokid 真机的第一视角摄像头、实体按键、功耗和设备运行时验证。
 
 ## 15. 能力桥接配置验证记录
+
+### 2026-07-29：UI 控制与手动语音发送
+
+实际执行并通过：
+
+1. 本地调试页不再把电脑键盘事件转发给 InkView；
+2. 点击底部“下滑”等 UI 控制按钮仍可改变 AIUI 页面焦点；
+3. 未监听时语音输入框和“发送语音”按钮保持禁用；
+4. 点击“唤醒”后页面收到 `leqi`，并调用 `SpeechRecognition.start()`；
+5. STT 会话建立后输入框和发送按钮解锁；
+6. 点击“发送语音”派发最终 `speech.result` 与 `speech.end`；
+7. 会话结束后输入框和发送按钮重新禁用；
+8. 448 × 352 Canvas、四键 UI 控制、语音信号轨和右侧能力检查器在同一页面完整显示。
+
 
 ### 2026-07-28：模拟语音与模拟照片
 

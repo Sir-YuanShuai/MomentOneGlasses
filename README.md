@@ -66,9 +66,9 @@ npm run dev
 http://127.0.0.1:5173/
 ```
 
-本地调试环境使用 Vite 加载项目文件，并通过 `@yodaos-pkg/ink` 在 448 × 352 Canvas 中运行 AIUI 页面。可以调试页面渲染、路由、状态、键盘事件、本地存储和降级逻辑。
+本地调试环境使用 Vite 加载项目文件，并通过 `@yodaos-pkg/ink` 在 448 × 352 Canvas 中运行 AIUI 页面。Flight Recorder 工作台提供四键 UI 模拟、语音交互信号轨、摄像头检查器和 LanguageModel 代理状态。
 
-调试工作台同时提供模拟/真实浏览器语音、模拟/真实浏览器照片和可选 LanguageModel 代理。默认使用模拟语音、模拟照片和模型离线降级，无需设备权限即可验证完整记录流程。
+电脑键盘不会映射到 AIUI 按键。模拟语音只有在页面真正开启 STT 后才允许输入和发送；发送完成后输入会再次锁定。工作台同时支持浏览器真实语音、模拟/真实照片和模型离线降级。
 
 构建静态预览产物：
 
@@ -90,6 +90,7 @@ npm run build:preview
 
 ## 架构文档
 
+- [四键交互与 STT 状态机](./docs/FOUR_BUTTON_INTERACTION.md)
 - [产品与技术架构](./docs/ARCHITECTURE.md)
 - [MVP 开发计划](./docs/MVP_PLAN.md)
 - [OpenAPI 契约](./docs/api/openapi.yaml)

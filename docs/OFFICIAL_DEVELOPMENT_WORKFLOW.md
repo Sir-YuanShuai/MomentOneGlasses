@@ -114,6 +114,8 @@ page.wxss
 
 Craft 预览通过后，仍需进行真机验证。
 
+MomentOne 针对 Craft `Interactive InkView` 的返回、点击、上滑、下滑映射，以及 STT 模拟输入的状态机实现见 [四键交互与 STT 状态机](./FOUR_BUTTON_INTERACTION.md)。
+
 ## 6. AIUI DevTools 与真机验收
 
 官方调试资料建议使用 AIUI DevTools（调试体验类似 Chrome DevTools），并在真机上重点验证：

@@ -214,8 +214,23 @@ async function createMockPhoto() {
   };
 }
 
-function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) {
+function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus, onSessionChange }) {
   const sessions = new Map();
+
+  function getActiveSession() {
+    return Array.from(sessions.values()).find((session) => !session.ended) || null;
+  }
+
+  function notifySessionChange() {
+    const session = getActiveSession();
+    onSessionChange?.({
+      listening: Boolean(session),
+      mode: session?.mode || getMode(),
+      canSubmit: session?.mode === 'mock',
+      sessionId: session?.request?.sessionId || '',
+      targetId: session?.request?.targetId || ''
+    });
+  }
 
   function dispatch(type, request, extra = {}) {
     const view = getView();
@@ -250,12 +265,14 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
     dispatch('speech.end', session.request);
     sessions.delete(session.request.sessionId);
     onStatus('语音识别已结束', aborted ? 'warning' : 'ready');
+    notifySessionChange();
   }
 
-  function emitMockResult(session) {
-    if (!session || session.resultEmitted || session.ended) return;
+  function emitMockResult(session, providedTranscript = '') {
+    if (!session || session.resultEmitted || session.ended) return false;
+    const transcript = String(providedTranscript || getMockTranscript() || '').trim();
+    if (!transcript) return false;
     session.resultEmitted = true;
-    const transcript = String(getMockTranscript() || '').trim() || '今天在西湖边散步，阳光很好';
 
     dispatch('speech.result', session.request, {
       resultIndex: 0,
@@ -263,13 +280,13 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
       alternatives: [{ transcript, confidence: 0.99 }]
     });
     onStatus(`模拟识别：${transcript}`, 'ready');
+    return true;
   }
 
   function startMockRecognition(request) {
     const session = {
       request,
       mode: 'mock',
-      timers: [],
       ended: false,
       resultEmitted: false
     };
@@ -279,12 +296,8 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
     dispatch('speech.audiostart', request);
     dispatch('speech.soundstart', request);
     dispatch('speech.speechstart', request);
-    onStatus('模拟语音识别中', 'active');
-
-    session.timers.push(
-      window.setTimeout(() => emitMockResult(session), 650),
-      window.setTimeout(() => finishSession(session), 900)
-    );
+    onStatus('模拟语音监听已开启，等待下方调试窗口发送输入', 'active');
+    notifySessionChange();
   }
 
   function startBrowserRecognition(request) {
@@ -306,6 +319,7 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
       ended: false
     };
     sessions.set(request.sessionId, session);
+    notifySessionChange();
 
     recognition.onstart = () => {
       dispatch('speech.start', request);
@@ -352,9 +366,16 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
       dispatch('speech.end', request);
       sessions.delete(request.sessionId);
       onStatus('浏览器语音识别已结束', 'ready');
+      notifySessionChange();
     };
 
-    recognition.start();
+    try {
+      recognition.start();
+    } catch (error) {
+      sessions.delete(request.sessionId);
+      notifySessionChange();
+      throw error;
+    }
   }
 
   return {
@@ -375,11 +396,35 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus }) 
       else startBrowserRecognition(request);
     },
 
+    submitTranscript(transcript) {
+      const session = getActiveSession();
+      if (!session) {
+        return { ok: false, reason: 'not-listening' };
+      }
+      if (session.mode !== 'mock') {
+        return { ok: false, reason: 'browser-mode' };
+      }
+      if (!emitMockResult(session, transcript)) {
+        return { ok: false, reason: 'empty-transcript' };
+      }
+      finishSession(session);
+      return { ok: true, sessionId: session.request.sessionId };
+    },
+
+    getSessionState() {
+      const session = getActiveSession();
+      return {
+        listening: Boolean(session),
+        mode: session?.mode || getMode(),
+        canSubmit: session?.mode === 'mock',
+        sessionId: session?.request?.sessionId || ''
+      };
+    },
+
     stopRecognition(request) {
       const session = sessions.get(request.sessionId);
       if (!session) return;
       if (session.mode === 'mock') {
-        emitMockResult(session);
         finishSession(session);
       } else {
         session.recognition.stop();
@@ -401,6 +446,7 @@ export function createLocalHostCapabilities({
   getCameraMode,
   getMockTranscript,
   onSpeechStatus,
+  onSpeechSessionChange,
   onCameraStatus,
   onPhoto
 }) {
@@ -409,7 +455,8 @@ export function createLocalHostCapabilities({
       getView,
       getMode: getSpeechMode,
       getMockTranscript,
-      onStatus: onSpeechStatus
+      onStatus: onSpeechStatus,
+      onSessionChange: onSpeechSessionChange
     }),
 
     media: {

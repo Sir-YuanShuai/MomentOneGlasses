@@ -30,24 +30,36 @@ import { SpeechRecognition } from 'speech';
 import { analyzeMoment } from '../../services/moment-ai.js';
 import { saveMoment } from '../../services/memory-store.js';
 import { presentMoment } from '../../services/format.js';
+import { CONTROL, moveFocus, resolveControl } from '../../services/controls.js';
 
 export default {
   data: {
     phase: 'idle',
     statusTitle: '准备记录这一刻',
-    statusDetail: '说“记录一下”，或按下确认键开始',
+    statusDetail: '上下选择，点击键确认；语音唤醒可直接开始',
     transcript: '',
     photoCaptured: false,
     locationName: '',
     localDebug: false,
     localDebugPhotoEndpoint: '',
-    lastMoment: null,
+    lastMoment: {
+      categoryMark: '',
+      title: '',
+      aiSummary: '',
+      tagsText: ''
+    },
+    hasLastMoment: false,
     focusIndex: 0,
+    sttLabel: '待命',
     errorMessage: ''
   },
 
   onLoad(input) {
     wx.setBackgroundColor({ backgroundColor: '#000000' });
+    this.pageVisible = true;
+    this.listeningRequested = false;
+    this.recognitionActive = false;
+    this.recognitionToken = 0;
     if (input) {
       this.setData({
         locationName: input.locationName || '',
@@ -57,7 +69,21 @@ export default {
     }
   },
 
+  onShow() {
+    this.pageVisible = true;
+    if (this.data.phase === 'listening' && this.listeningRequested && !this.recognitionActive) {
+      this.startRecognition();
+    }
+  },
+
+  onHide() {
+    this.pageVisible = false;
+    this.suspendRecognition();
+  },
+
   onUnload() {
+    this.pageVisible = false;
+    this.listeningRequested = false;
     this.disposeRecognition();
   },
 
@@ -65,25 +91,31 @@ export default {
     if (this.data.phase === 'listening' || this.data.phase === 'understanding') return;
 
     this.recordStartedAt = new Date().toISOString();
+    this.recordSessionId = (this.recordSessionId || 0) + 1;
     this.finalizing = false;
+    this.stopRequested = false;
+    this.listeningRequested = true;
+    this.recognitionFailed = false;
     this.recognizedText = '';
     this.setData({
       phase: 'listening',
       statusTitle: '正在感知这一刻',
-      statusDetail: '请自然说出发生了什么',
+      statusDetail: '说完后按点击键；返回键取消',
       transcript: '',
       photoCaptured: false,
-      lastMoment: null,
+      hasLastMoment: false,
+      focusIndex: 0,
+      sttLabel: '连接中',
       errorMessage: ''
     });
 
-    this.photoPromise = this.capturePhoto();
+    this.photoPromise = this.capturePhoto(this.recordSessionId);
     this.startRecognition();
   },
 
-  async capturePhoto() {
+  async capturePhoto(sessionId) {
     if (this.data.localDebug && this.data.localDebugPhotoEndpoint) {
-      return this.captureLocalDebugPhoto();
+      return this.captureLocalDebugPhoto(sessionId);
     }
 
     try {
@@ -93,7 +125,9 @@ export default {
       const base64 = wx.arrayBufferToBase64(photo.data);
       const mimeType = photo.mimeType || 'image/jpeg';
       const imageDataUrl = `data:${mimeType};base64,${base64}`;
-      this.setData({ photoCaptured: true });
+      if (sessionId === this.recordSessionId && this.data.phase !== 'idle') {
+        this.setData({ photoCaptured: true });
+      }
       return { mimeType, imageDataUrl };
     } catch (error) {
       console.warn('Camera capture unavailable:', error);
@@ -101,7 +135,7 @@ export default {
     }
   },
 
-  async captureLocalDebugPhoto() {
+  async captureLocalDebugPhoto(sessionId) {
     try {
       const response = await fetch(this.data.localDebugPhotoEndpoint, {
         cache: 'no-store'
@@ -114,7 +148,9 @@ export default {
       const payload = JSON.parse(await response.text());
       if (!payload.base64) return null;
       const mimeType = payload.mimeType || 'image/jpeg';
-      this.setData({ photoCaptured: true });
+      if (sessionId === this.recordSessionId && this.data.phase !== 'idle') {
+        this.setData({ photoCaptured: true });
+      }
       return {
         mimeType,
         imageDataUrl: `data:${mimeType};base64,${payload.base64}`
@@ -134,6 +170,13 @@ export default {
   },
 
   startRecognition() {
+    if (this.recognitionActive || !this.listeningRequested || this.data.phase !== 'listening' || !this.pageVisible) {
+      return;
+    }
+
+    const token = this.recognitionToken + 1;
+    this.recognitionToken = token;
+    this.recognitionFailed = false;
     try {
       const recognition = new SpeechRecognition();
       recognition.lang = 'zh-CN';
@@ -141,30 +184,61 @@ export default {
       recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
+      recognition.onstart = () => {
+        if (token !== this.recognitionToken) return;
+        this.recognitionActive = true;
+        this.setData({ sttLabel: '监听中' });
+      };
+
       recognition.onresult = (event) => {
+        if (token !== this.recognitionToken) return;
         const transcript = this.extractTranscript(event);
         if (transcript) {
           this.recognizedText = transcript;
-          this.setData({ transcript });
+          this.setData({ transcript, sttLabel: '已收到输入' });
         }
       };
 
       recognition.onerror = (event) => {
-        console.warn('Speech recognition error:', event && event.message);
+        if (token !== this.recognitionToken) return;
+        this.recognitionFailed = true;
+        console.warn('Speech recognition error:', event && (event.error || event.message));
+        this.setData({
+          sttLabel: '暂不可用',
+          statusDetail: '语音不可用时，点击键仍可保存基础记录'
+        });
       };
 
       recognition.onend = () => {
+        if (token !== this.recognitionToken) return;
         this.recognitionActive = false;
-        this.finalizeRecord(this.recognizedText);
+        this.recognition = null;
+
+        if (!this.listeningRequested || this.data.phase !== 'listening') return;
+        if (this.stopRequested || this.recognizedText) {
+          this.listeningRequested = false;
+          this.finalizeRecord(this.recognizedText || '');
+          return;
+        }
+        if (this.pageVisible && !this.recognitionFailed) {
+          this.setData({ sttLabel: '继续监听' });
+          this.startRecognition();
+        }
       };
 
       this.recognition = recognition;
       this.recognitionActive = true;
       recognition.start();
     } catch (error) {
+      if (token !== this.recognitionToken) return;
       console.warn('Speech recognition unavailable:', error);
+      this.recognition = null;
       this.recognitionActive = false;
-      this.finalizeRecord('');
+      this.recognitionFailed = true;
+      this.setData({
+        sttLabel: '暂不可用',
+        statusDetail: '语音不可用时，点击键仍可保存基础记录'
+      });
     }
   },
 
@@ -183,7 +257,8 @@ export default {
 
   stopRecord() {
     if (this.data.phase !== 'listening') return;
-    this.setData({ statusDetail: '正在完成记录' });
+    this.stopRequested = true;
+    this.setData({ statusDetail: '正在完成记录', sttLabel: '正在结束' });
     if (this.recognition && this.recognitionActive) {
       try {
         this.recognition.stop();
@@ -192,16 +267,37 @@ export default {
         console.warn('Unable to stop recognition:', error);
       }
     }
+    this.listeningRequested = false;
     this.finalizeRecord(this.recognizedText || '');
+  },
+
+  cancelRecord() {
+    if (this.data.phase !== 'listening') return;
+    this.listeningRequested = false;
+    this.stopRequested = false;
+    this.recordSessionId = (this.recordSessionId || 0) + 1;
+    this.disposeRecognition();
+    this.setData({
+      phase: 'idle',
+      statusTitle: '已取消记录',
+      statusDetail: '上下选择，点击键确认；语音唤醒可直接开始',
+      transcript: '',
+      photoCaptured: false,
+      sttLabel: '待命',
+      errorMessage: ''
+    });
   },
 
   async finalizeRecord(voiceInput) {
     if (this.finalizing || this.data.phase !== 'listening') return;
     this.finalizing = true;
+    this.listeningRequested = false;
+    this.disposeRecognition();
     this.setData({
       phase: 'understanding',
       statusTitle: '正在整理记忆',
-      statusDetail: '理解画面、语音并生成摘要'
+      statusDetail: '理解画面、语音并生成摘要',
+      sttLabel: '已结束'
     });
 
     try {
@@ -255,7 +351,9 @@ export default {
         statusDetail: analysis.aiMode === 'fallback' ? '已使用离线理解完成记录' : '已生成摘要与标签',
         transcript: voiceInput || '',
         lastMoment: presentMoment(moment),
-        focusIndex: 0
+        hasLastMoment: true,
+        focusIndex: 0,
+        sttLabel: '待命'
       });
       try {
         wx.speech.playTTS('这一刻，已经记住了');
@@ -268,75 +366,103 @@ export default {
       this.setData({
         phase: 'error',
         statusTitle: '暂时没有保存成功',
-        statusDetail: '请重新记录一次',
+        statusDetail: '选择记录这一刻后重试',
+        sttLabel: '待命',
         errorMessage: String(error && error.message ? error.message : error)
       });
     }
   },
 
-  disposeRecognition() {
+  suspendRecognition() {
     if (!this.recognition) return;
+    const recognition = this.recognition;
+    this.recognitionToken += 1;
+    this.recognition = null;
+    this.recognitionActive = false;
     try {
-      this.recognition.abort();
+      recognition.abort();
+    } catch (error) {
+      console.warn('Unable to suspend recognition:', error);
+    }
+    if (this.listeningRequested && this.data.phase === 'listening') {
+      this.setData({ sttLabel: '已暂停' });
+    }
+  },
+
+  disposeRecognition() {
+    if (!this.recognition) {
+      this.recognitionToken += 1;
+      this.recognitionActive = false;
+      return;
+    }
+    const recognition = this.recognition;
+    this.recognitionToken += 1;
+    this.recognition = null;
+    this.recognitionActive = false;
+    try {
+      recognition.abort();
     } catch (error) {
       console.warn('Unable to abort recognition:', error);
     }
-    this.recognition = null;
-    this.recognitionActive = false;
   },
 
   openTimeline() {
+    if (this.data.phase === 'listening' || this.data.phase === 'understanding') return;
     wx.navigateTo({ url: '/pages/timeline/timeline' });
   },
 
   openSearch() {
+    if (this.data.phase === 'listening' || this.data.phase === 'understanding') return;
     wx.navigateTo({ url: '/pages/search/search' });
   },
 
   handlePrimaryAction() {
     if (this.data.phase === 'listening') this.stopRecord();
-    else this.startRecord();
+    else if (this.data.phase !== 'understanding') this.startRecord();
   },
 
   activateFocused() {
+    if (this.data.phase === 'listening') {
+      this.stopRecord();
+      return;
+    }
+    if (this.data.phase === 'understanding') return;
     if (this.data.focusIndex === 0) this.handlePrimaryAction();
     if (this.data.focusIndex === 1) this.openTimeline();
     if (this.data.focusIndex === 2) this.openSearch();
   },
 
-  onVoiceWakeup() {
+  onVoiceWakeup(event) {
+    console.log('Moment One voice wakeup:', event && event.keyword);
     if (this.data.phase !== 'listening' && this.data.phase !== 'understanding') {
       this.startRecord();
     }
   },
 
   onKeyUp(event) {
-    if (event.code === 'GlobalHook' && this.data.phase !== 'listening') {
-      event.preventDefault();
-      this.startRecord();
+    const control = resolveControl(event.code);
+    if (!control) return;
+
+    if (control === CONTROL.BACK) {
+      if (this.data.phase === 'listening') {
+        event.preventDefault();
+        this.cancelRecord();
+      } else if (this.data.phase === 'understanding') {
+        event.preventDefault();
+        this.setData({ statusDetail: '正在保存，请稍候' });
+      }
       return;
     }
-    if (event.code === 'Enter') {
-      event.preventDefault();
-      if (this.data.phase === 'listening') this.stopRecord();
-      else this.activateFocused();
+
+    event.preventDefault();
+    if (control === CONTROL.ACTIVATE) {
+      this.activateFocused();
       return;
     }
-    if (event.code === 'ArrowDown' || event.code === 'ArrowUp') {
-      event.preventDefault();
-      const delta = event.code === 'ArrowDown' ? 1 : -1;
-      this.setData({ focusIndex: (this.data.focusIndex + delta + 3) % 3 });
-      return;
-    }
-    if (event.code === 'Backspace' && this.data.phase === 'listening') {
-      event.preventDefault();
-      this.disposeRecognition();
-      this.setData({
-        phase: 'idle',
-        statusTitle: '已取消记录',
-        statusDetail: '需要时再告诉我'
-      });
-    }
+    if (this.data.phase === 'listening' || this.data.phase === 'understanding') return;
+
+    const delta = control === CONTROL.NEXT ? 1 : -1;
+    this.setData({ focusIndex: moveFocus(this.data.focusIndex, 3, delta) });
   }
 }
 </script>
@@ -349,7 +475,7 @@ export default {
         <text class="brand-title">Moment One</text>
         <text class="brand-subtitle">AI 替你记住人生</text>
       </view>
-      <text class="phase-label">{{ phase === 'listening' ? '感知中' : phase === 'understanding' ? '理解中' : '记忆系统' }}</text>
+      <text class="phase-label">{{ phase === 'listening' ? 'STT ' + sttLabel : phase === 'understanding' ? '理解中' : '上下选择' }}</text>
     </view>
 
     <card class="record-card" role="group">
@@ -364,6 +490,8 @@ export default {
       </view>
 
       <view class="capture-meta" ink:if="{{ phase === 'listening' || phase === 'understanding' }}">
+        <text class="meta-item">语音 {{ sttLabel }}</text>
+        <text class="meta-divider">·</text>
         <text class="meta-item">画面 {{ photoCaptured ? '已捕捉' : '采集中' }}</text>
         <text class="meta-divider">·</text>
         <text class="meta-item">位置 {{ locationName ? locationName : '未提供' }}</text>
@@ -371,7 +499,7 @@ export default {
 
       <text class="transcript" ink:if="{{ transcript }}">“{{ transcript }}”</text>
 
-      <view class="moment-preview" ink:if="{{ lastMoment }}">
+      <view class="moment-preview" ink:if="{{ hasLastMoment }}">
         <view class="category-mark"><text>{{ lastMoment.categoryMark }}</text></view>
         <view class="moment-copy">
           <text class="moment-title">{{ lastMoment.title }}</text>
@@ -412,6 +540,7 @@ export default {
   width: 100%;
   height: 46px;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
 }
@@ -458,7 +587,7 @@ export default {
 
 .record-card {
   width: 100%;
-  height: 208px;
+  height: 190px;
   box-sizing: border-box;
   padding: var(--card-padding);
   border: var(--card-border-width) solid var(--card-border-color);
@@ -471,6 +600,7 @@ export default {
 
 .status-row {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-md);
 }
@@ -517,6 +647,7 @@ export default {
 
 .capture-meta {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 6px;
   padding: 5px 8px;
@@ -537,6 +668,7 @@ export default {
 
 .moment-preview {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
   padding: 7px;
@@ -578,6 +710,7 @@ export default {
   width: 100%;
   height: 54px;
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--spacing-sm);
 }
@@ -595,7 +728,7 @@ export default {
 }
 
 .primary-action {
-  flex-grow: 1;
+  width: 220px;
   color: var(--color-background);
   background-color: var(--color-primary);
   border: var(--border-width-default) solid var(--border-color-accent);
