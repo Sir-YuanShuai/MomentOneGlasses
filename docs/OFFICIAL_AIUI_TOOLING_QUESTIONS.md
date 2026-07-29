@@ -3,6 +3,8 @@
 > 编写日期：2026-07-28
 > 当前评估版本：AIUI / Ink 0.14.0
 > 用途：面向 Rokid AI Glasses 的通用技术预研，不包含具体应用信息
+>
+> **文档性质：咨询模板与沟通记录，不是官方操作手册。**本文中的问题、待回复状态和本项目对 Ink Web 的观测都未获得 Rokid 官方确认；不得据此推断 CLI、设备连接、日志、模拟器或发布流程。已确认的官方资料入口见 [AIUI 官方开发与发布流程](./OFFICIAL_DEVELOPMENT_WORKFLOW.md)。
 
 ## 隐私原则
 
@@ -49,7 +51,7 @@ LanguageModel
 本地存储
 ```
 
-5. 在 Ink Web `0.14.0` 中调用 `wx.media.createCameraContext()` 时，我们观察到以下错误：
+5. **本项目本地观测（非官方结论）：**在 Ink Web `0.14.0` 中调用 `wx.media.createCameraContext()` 时，我们观察到以下错误：
 
 ```text
 createCameraContext: CameraContext is not supported on web media provider

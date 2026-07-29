@@ -3,6 +3,8 @@
 > 配置日期：2026-07-28
 > 项目：一刻 YiKe · Moment One
 > 目标运行尺寸：448 × 352
+>
+> **文档边界：**本文记录 MomentOne 自建的 Vite + Ink Web Runtime 浏览器 fallback，不是 Rokid 官方 Craft、AIUI DevTools、真机调试或灵珠发布手册。官方 AIUI 工具链与发布流程见 [AIUI 官方开发与发布流程](./OFFICIAL_DEVELOPMENT_WORKFLOW.md)；尚未公开确认的设备、CLI 和发布问题见 [官方工具问题清单](./OFFICIAL_AIUI_TOOLING_QUESTIONS.md)。
 
 ## 1. 目标
 
@@ -151,6 +153,7 @@ npm run check
 - `app.json` 是否为合法 JSON；
 - `app.js` 和 `services/*.js` 是否存在 JavaScript 语法错误；
 - `app.json.pages` 对应的 `.ink` 文件是否存在；
+- 当前检查器只支持本项目采用的 `.ink` 页面模式；它不检查官方支持的多文件页面（`page.json`、`page.js`、`page.wxml`、`page.wxss`）；
 - 每个 `.ink` 页面是否包含：
   - `<script def>`；
   - `<script setup>`；
@@ -687,3 +690,14 @@ Moment analyzeMoment()           → 未进入 fallback
 Moment 保存页面                  → 显示“已生成摘要与标签”
 Console                          → 无 error 日志
 ```
+
+## 16. 与官方 AIUI 流程的关系
+
+本文件的命令和能力桥接只针对 MomentOne 的本地浏览器 fallback：
+
+- `npm run dev`、`npm run check` 和 `npm run build:preview` 是本项目脚本，不是官方 AIUI CLI 命令；
+- 浏览器 DevTools 不等同于官方 AIUI DevTools；
+- 模拟语音、浏览器摄像头和 LanguageModel 代理不能替代 Craft、Rokid Glasses 真机或设备性能验证；
+- 本地 `dist-preview/` 不是官方 AIX 分发包，也不能直接用于灵珠平台发布。
+
+官方本地工程、Craft、真机调试和发布流程见 [AIUI 官方开发与发布流程](./OFFICIAL_DEVELOPMENT_WORKFLOW.md)。官方设备连接、CLI、Host Capability 和发布自动化的未确认项见 [官方工具问题清单](./OFFICIAL_AIUI_TOOLING_QUESTIONS.md)。

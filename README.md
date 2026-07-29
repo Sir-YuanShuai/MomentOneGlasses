@@ -34,6 +34,8 @@ Moment One 是面向 Rokid AI Glasses 的 AI 原生个人生活记忆系统。�
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── LOCAL_DEVELOPMENT.md
+│   ├── OFFICIAL_DEVELOPMENT_WORKFLOW.md
+│   ├── OFFICIAL_AIUI_TOOLING_QUESTIONS.md
 │   ├── MVP_PLAN.md
 │   ├── api/openapi.yaml
 │   └── database/schema.sql
@@ -75,6 +77,8 @@ npm run build:preview
 ```
 
 详细安装过程、调试方法、能力边界和真机联调清单见 [AIUI 本地开发与调试环境](./docs/LOCAL_DEVELOPMENT.md)。
+
+本地 Vite 预览是项目自建的浏览器 fallback，不等同于官方 Craft、AIUI DevTools 或 Rokid Glasses 真机。官方 AIUI 工具链、真机验收和灵珠发布流程见 [AIUI 官方开发与发布流程](./docs/OFFICIAL_DEVELOPMENT_WORKFLOW.md)；未确认的设备、CLI 和发布问题见 [官方工具问题清单](./docs/OFFICIAL_AIUI_TOOLING_QUESTIONS.md)。
 
 设备端最终需要验证以下能力：
 
