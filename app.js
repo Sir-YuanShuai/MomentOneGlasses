@@ -16,6 +16,9 @@ export default {
     version: '0.1.0',
     defaultUserId: 'local-user',
     timezone: 'Asia/Shanghai',
-    repositoryMode: 'local'
+    repositoryMode: 'local',
+    cloudSyncEnabled: false,
+    mcpEnabled: false,
+    mcpAppsEnabled: false
   }
 };

@@ -8,7 +8,7 @@ const sourceModules = import.meta.glob(
     '../app.json',
     '../pages/**/*.ink',
     '../services/**/*.js',
-    '../prompts/**/*.md'
+    '../prompts/**/*.{md,js}'
   ],
   {
     eager: true,
@@ -60,12 +60,64 @@ const llmModelValue = document.querySelector('#llm-model-value');
 const llmAuthValue = document.querySelector('#llm-auth-value');
 const testLlmButton = document.querySelector('#test-llm-button');
 const llmState = document.querySelector('#llm-state');
+const agentTraceList = document.querySelector('#agent-trace-list');
 
 let view = null;
 let hostCapabilities = null;
 let photoObjectUrl = '';
 let currentLlmConfig = null;
 let speechSessionState = { listening: false, mode: 'mock', canSubmit: false, sessionId: '' };
+const agentTraceEvents = [];
+
+function renderAgentTrace() {
+  if (!agentTraceList) return;
+  agentTraceList.replaceChildren();
+  if (!agentTraceEvents.length) {
+    const empty = document.createElement('div');
+    empty.className = 'trace-empty';
+    empty.textContent = '等待 Agent Turn';
+    agentTraceList.appendChild(empty);
+    return;
+  }
+  agentTraceEvents.slice(-10).forEach((event) => {
+    const item = document.createElement('div');
+    item.className = 'trace-event';
+    const title = document.createElement('strong');
+    title.textContent = event.type || 'agent.event';
+    const detail = document.createElement('span');
+    const fields = [event.toolName, event.intentType, event.reason, event.promptId]
+      .filter(Boolean)
+      .join(' · ');
+    detail.textContent = fields || event.turnId || '';
+    item.append(title, detail);
+    agentTraceList.appendChild(item);
+  });
+  agentTraceList.scrollTop = agentTraceList.scrollHeight;
+}
+
+function captureAgentTrace(args) {
+  const text = args.map((value) => typeof value === 'string' ? value : '').join(' ');
+  const marker = '[moment-one:agent-trace]';
+  const markerIndex = text.indexOf(marker);
+  if (markerIndex < 0) return;
+  const payload = text.slice(markerIndex + marker.length).trim();
+  const jsonStart = payload.indexOf('{');
+  const jsonEnd = payload.lastIndexOf('}');
+  if (jsonStart < 0 || jsonEnd <= jsonStart) return;
+  try {
+    agentTraceEvents.push(JSON.parse(payload.slice(jsonStart, jsonEnd + 1)));
+    if (agentTraceEvents.length > 60) agentTraceEvents.splice(0, agentTraceEvents.length - 60);
+    renderAgentTrace();
+  } catch {
+    // Ink console may append style arguments; malformed traces stay in the browser console.
+  }
+}
+
+const originalConsoleInfo = console.info.bind(console);
+console.info = (...args) => {
+  captureAgentTrace(args);
+  originalConsoleInfo(...args);
+};
 
 function setStatus(element, message, state = '') {
   element.textContent = message;
@@ -310,6 +362,9 @@ async function startPreview() {
     onPhoto: showPhoto
   });
 
+  // 快速记录页面会在 onShow 立即读取预置照片；模拟模式必须先准备桥接数据。
+  if (cameraMode.value === 'mock') await preparePhoto();
+
   view = await createInkView({
     width: 448,
     height: 352,
@@ -344,9 +399,7 @@ async function startPreview() {
   setStatus(runtimeStatus, `运行中：${initialPage}`, 'ready');
   console.info('[preview] Ink bundle opened', { initialPage });
 
-  if (cameraMode.value === 'mock') {
-    await preparePhoto();
-  } else {
+  if (cameraMode.value !== 'mock') {
     setStatus(cameraStatus, '点击“准备并测试照片”后允许 Chrome 摄像头权限', 'warning');
   }
 

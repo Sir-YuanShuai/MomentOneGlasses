@@ -20,7 +20,11 @@
   "scripts": {
     "dev": "vite --config dev/vite.config.js",
     "build:preview": "vite build --config dev/vite.config.js",
-    "check": "node dev/check.mjs"
+    "check": "node dev/check.mjs",
+    "test:mvp": "node tests/mvp.test.mjs",
+    "verify:mvp": "npm run check && npm run test:mvp && npm run build:preview",
+    "check:aix-size": "node scripts/check-aix-size.mjs",
+    "pack:aix": "node scripts/pack-aix.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

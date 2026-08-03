@@ -440,6 +440,130 @@ function createSpeechAdapter({ getView, getMode, getMockTranscript, onStatus, on
   };
 }
 
+function createSilentWavBlob(durationMs = 800) {
+  const sampleRate = 8000;
+  const channelCount = 1;
+  const bytesPerSample = 2;
+  const sampleCount = Math.max(1, Math.round(sampleRate * durationMs / 1000));
+  const dataSize = sampleCount * channelCount * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const writeText = (offset, value) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index));
+    }
+  };
+
+  writeText(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channelCount * bytesPerSample, true);
+  view.setUint16(32, channelCount * bytesPerSample, true);
+  view.setUint16(34, bytesPerSample * 8, true);
+  writeText(36, 'data');
+  view.setUint32(40, dataSize, true);
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function createAudioRecordingAdapter({ getView, getMode }) {
+  let activeRecording = null;
+
+  function dispatch(type, targetId, extra = {}) {
+    const view = getView();
+    if (!view) return;
+    view.hostCapabilitiesTarget.dispatchEvent(new CustomEvent(type, {
+      detail: { targetId, ...extra }
+    }));
+  }
+
+  function releaseStream(recording) {
+    recording?.stream?.getTracks?.().forEach((track) => track.stop());
+  }
+
+  async function startAudioRecording(request) {
+    if (activeRecording) throw new Error('已有录音正在进行');
+    const targetId = request.targetId;
+
+    if (getMode() === 'mock') {
+      activeRecording = { targetId, mode: 'mock' };
+      window.setTimeout(() => dispatch('media.audioRecordingStarted', targetId), 0);
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      throw new Error('当前浏览器不支持录音');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+    const mimeType = preferredTypes.find((type) => MediaRecorder.isTypeSupported(type));
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    const chunks = [];
+    const recording = { targetId, mode: 'browser', stream, recorder, chunks };
+    activeRecording = recording;
+
+    recorder.onstart = () => dispatch('media.audioRecordingStarted', targetId);
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    };
+    recorder.onerror = (event) => {
+      dispatch('media.audioRecordingError', targetId, {
+        message: event.error?.message || '浏览器录音失败'
+      });
+    };
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      const path = URL.createObjectURL(blob);
+      releaseStream(recording);
+      if (activeRecording === recording) activeRecording = null;
+      dispatch('media.audioRecordingStopped', targetId, { path });
+    };
+    recorder.start();
+  }
+
+  async function stopAudioRecording() {
+    const recording = activeRecording;
+    if (!recording) return;
+    if (recording.mode === 'mock') {
+      activeRecording = null;
+      const path = URL.createObjectURL(createSilentWavBlob());
+      dispatch('media.audioRecordingStopped', recording.targetId, { path });
+      return;
+    }
+    if (recording.recorder.state !== 'inactive') recording.recorder.stop();
+  }
+
+  async function pauseAudioRecording() {
+    const recording = activeRecording;
+    if (!recording) return;
+    if (recording.mode === 'browser' && recording.recorder.state === 'recording') {
+      recording.recorder.pause();
+    }
+    dispatch('media.audioRecordingPaused', recording.targetId);
+  }
+
+  async function resumeAudioRecording() {
+    const recording = activeRecording;
+    if (!recording) return;
+    if (recording.mode === 'browser' && recording.recorder.state === 'paused') {
+      recording.recorder.resume();
+    }
+    dispatch('media.audioRecordingResumed', recording.targetId);
+  }
+
+  return {
+    startAudioRecording,
+    stopAudioRecording,
+    pauseAudioRecording,
+    resumeAudioRecording
+  };
+}
+
 export function createLocalHostCapabilities({
   getView,
   getSpeechMode,
@@ -450,6 +574,10 @@ export function createLocalHostCapabilities({
   onCameraStatus,
   onPhoto
 }) {
+  const audioRecording = createAudioRecordingAdapter({
+    getView,
+    getMode: getSpeechMode
+  });
   const capabilities = {
     speech: createSpeechAdapter({
       getView,
@@ -460,6 +588,7 @@ export function createLocalHostCapabilities({
     }),
 
     media: {
+      ...audioRecording,
       async takePhoto(request) {
         const mode = getCameraMode();
         onCameraStatus(mode === 'mock' ? '正在生成模拟照片' : '正在请求浏览器摄像头', 'active');

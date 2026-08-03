@@ -714,6 +714,39 @@
       line-height: 15px;
     }
 
+    .trace-list {
+      max-height: 210px;
+      margin-top: 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .trace-empty,
+    .trace-event {
+      padding: 7px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #0c1118;
+      font: 9px/13px var(--mono);
+    }
+
+    .trace-empty { color: var(--faint); }
+    .trace-event { color: var(--muted); }
+    .trace-event strong {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--signal);
+      font-weight: 700;
+    }
+    .trace-event span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .tips {
       margin: 10px 0 0;
       padding-left: 17px;
@@ -908,6 +941,15 @@
           <button id="test-llm-button" class="secondary-button" type="button">测试模型代理</button>
           <p id="llm-state" class="llm-state"></p>
           <p class="field-help">环境变量更新后需重启开发服务器；密钥不会进入浏览器 Bundle。</p>
+        </section>
+
+        <section class="inspector-card">
+          <div class="card-kicker">Agent loop trace</div>
+          <h3 class="card-title">工具调用轨迹</h3>
+          <div id="agent-trace-list" class="trace-list" aria-live="polite">
+            <div class="trace-empty">等待 Agent Turn</div>
+          </div>
+          <p class="field-help">只显示步骤、工具名和意图；不展示完整 Moment 或图片。</p>
         </section>
 
         <section class="inspector-card">
