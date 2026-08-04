@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
 const requiredEntries = ['AGENTS.md', 'app.js', 'app.json', 'pages', 'services'];
-const optionalEntries = ['assets'];
+const optionalEntries = ['assets', 'prompts'];
 const maxAixBytes = 10_000_000;
 
 const version = packageConfig.version;
@@ -50,7 +51,11 @@ try {
     packagedEntries.push(entry);
   }
 
-  fs.writeFileSync(path.join(stagingDirectory, 'VERSION'), version);
+  // AIUI 要求 VERSION 文件为唯一 UUID，用于版本校验和热更新。
+  // 设备会根据 VERSION 判断是否需要更新缓存的页面文件。
+  // 固定版本号会导致设备误判"版本未变"而不触发更新，旧页面文件会持续缓存。
+  const buildUuid = crypto.randomUUID();
+  fs.writeFileSync(path.join(stagingDirectory, 'VERSION'), buildUuid);
   packagedEntries.push('VERSION');
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -73,6 +78,7 @@ try {
     console.log(`AIX 打包完成：${relativeOutput}`);
     console.log(`包体积：${(size / 1_000_000).toFixed(3)} MB（${size} 字节）`);
     console.log(`版本：${version}`);
+    console.log(`构建 UUID（VERSION）：${buildUuid}`);
   }
 } catch (error) {
   console.error(`AIX 打包失败：${error.message}`);

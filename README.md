@@ -2,38 +2,34 @@
 
 **AI 替你记住人生。**
 
-Moment One 当前 MVP 是面向 Rokid AI Glasses 的纯本地个人记忆应用。跨平台 Memory Platform、Cloud、MCP Server、Mobile/Web 和 MCP Apps 仅保留架构设计，当前版本不连接云端或远程 MCP。
+Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已实现设备扫码绑定（OAuth 2.1 QR Binding grant）。跨平台 Memory Platform、Cloud Sync、MCP Server、Mobile/Web 和 MCP Apps 仅保留架构设计，当前版本不实现云端同步或远程 MCP。
 
 ## 当前 MVP
 
-- 记录 Moment：语音识别、第一视角拍照、多模态理解、自动摘要、分类和标签。
-- Tool Calling 交互：首页通过 `LanguageModel.tools` 选择新增、查询、回顾、修改、删除或配置工具，并由代码层校验和执行。
-- 自然记录：用户直接表达具体生活经历、当下观察或感受即可生成 Moment，不要求先说“记录”；非生活请求和不明确内容不会保存。
-- 双形态 UI：沉浸式首页负责连续语音操作，对话流卡片只读展示 Moment 结果、记忆回答和 MCP App 降级结果。
-- 本地优先：Moment、配置、查询和确认状态均保存在当前设备，不依赖 Cloud 或 MCP。
-- AI Memory Search：在同一页面通过语音检索个人记忆，并只依据用户自己的 Moment 回答。
-- 快速记录：开启后先拍照并显示预览，再询问记录内容，最后通过语音选择保存照片、重新拍摄、不保存照片或录制短音频。
-- 视频边界：当前已确认的 AIUI Camera API 只支持拍照，视频录制暂不执行，会提示改用照片或录音。
-- 本地录音调试：Flight Recorder 使用短时模拟音频跑通保存链路；设备端继续使用 `wx.media.getRecorderManager()`，需真机验证权限与文件路径生命周期。
-- 离线降级：LanguageModel、摄像头或语音不可用时仍可保存基础 Moment。
+- 设备扫码绑定：眼镜端扫描 Web 端二维码，通过 OAuth 2.1 QR Binding grant 向 Server 换取 JWT access_token + refresh_token，本地持久化。
+- Token 自动刷新：access_token 过期前自动用 refresh_token 刷新（90 天滚动续期），刷新失败则清除本地绑定并要求重新扫码。
+- 绑定状态分流：welcome 页根据本地绑定状态（bound / unbound / expired）自动分流到主页或扫码页。
+- 页面导航框架：welcome → scan → index 三页导航已就绪，对话功能待实现。
 
 ## 页面
 
 | Route | 说明 |
 |---|---|
-| `pages/index/index` | 单页完成记录、记忆查询、生活回顾和即刻记忆配置 |
-| `pages/cards/moment-result` | 只读展示 Moment 操作结果 |
-| `pages/cards/memory-answer` | 只读展示记忆回答和证据摘要 |
+| `pages/welcome/welcome` | 欢迎页（入口），点击/唤醒后根据绑定状态分流 |
+| `pages/scan/scan` | 扫码绑定页，自动打开相机扫码并换取 token |
+| `pages/index/index` | 主页（对话页面框架，对话功能待实现），进入时校验 token |
 
 ## 项目结构
 
 ```text
 .
 ├── AGENTS.md
+├── AGENTS.dev.md
 ├── app.js
 ├── app.json
 ├── dev/
 │   ├── check.mjs
+│   ├── host-capabilities.js
 │   ├── index.html
 │   ├── main.js
 │   └── vite.config.js
@@ -49,9 +45,21 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的纯本地个人记忆应用�
 │   ├── welcome/welcome.ink
 │   ├── scan/scan.ink
 │   └── index/index.ink
-└── services/
-    └── controls.js
+├── services/
+│   ├── binding.js      # 设备绑定服务（deviceId、绑定状态、请求绑定、token 刷新、二维码解析）
+│   ├── config.js       # Server 地址、OAuth 端点、存储 key 常量
+│   └── controls.js     # 按键映射
+└── tests/
+    └── mvp.test.mjs
 ```
+
+## 设备绑定流程
+
+1. **Web 端**登录后创建绑定会话，生成二维码（`momentone://bind?code=BIND-xxxx`）
+2. **眼镜端** welcome 页点击进入 → 未绑定时跳转 scan 页
+3. **scan 页**打开相机扫码 → `parseQrPayload()` 提取 binding_code → `requestBinding(code)` 调 POST /oauth/token 换 token
+4. 绑定成功 → 跳转 index 页，本地存储 access_token / refresh_token / expires_at
+5. 后续进入 index 页时调 `getValidAccessToken()` 确保 token 可用，过期则自动刷新
 
 ## 本地开发与调试
 
@@ -71,8 +79,6 @@ http://127.0.0.1:5173/
 ```
 
 本地调试环境使用 Vite 加载项目文件，并通过 `@yodaos-pkg/ink` 在 448 × 352 Canvas 中运行 AIUI 页面。Flight Recorder 工作台提供四键 UI 模拟、语音交互信号轨、摄像头检查器和 LanguageModel 代理状态。
-
-页面进入后会直接开启统一 STT 意图入口。模拟语音只有在页面真正开启 STT 后才允许输入和发送；发送完成后输入会再次锁定。工作台同时支持浏览器真实语音、模拟/真实照片和模型离线降级。
 
 构建静态预览产物：
 
@@ -97,7 +103,7 @@ npm run pack:aix
 默认产物为 `dist/moment-one-<version>.aix`，包内会生成与 `package.json` 一致的 `VERSION` 文件。打包完成后必须执行：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.1.0.aix
+npm run check:aix-size -- dist/moment-one-0.2.0.aix
 ```
 
 也可以传入包含 AIX 包的目录；任意文件超限都会返回非零退出码并阻止发布：
@@ -112,10 +118,11 @@ npm run check:aix-size -- dist
 
 设备端最终需要验证以下能力：
 
-- `SpeechRecognition`
-- `wx.media.createCameraContext()`
-- `LanguageModel`（可选，有确定性降级）
-- `wx` storage
+- `BarcodeDetector`（二维码识别）
+- `wx.media.createCameraContext()`（相机拍照）
+- `wx.request`（网络请求 OAuth token 端点）
+- `crypto.randomUUID()`（设备 ID 生成）
+- `wx` storage（token 持久化）
 - Rokid 实体按键与设备生命周期
 
 ## 架构文档

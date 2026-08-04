@@ -2,7 +2,9 @@
   "pages": [
     "pages/welcome/welcome",
     "pages/scan/scan",
-    "pages/index/index"
+    "pages/index/index",
+    "pages/cards/moment-result",
+    "pages/cards/memory-answer"
   ],
   "window": {
     "navigationBarTitleText": "一刻 · Moment One",

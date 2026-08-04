@@ -14,12 +14,15 @@
 <script setup>
 import wx from 'wx';
 import { CONTROL, resolveControl } from '../../services/controls.js';
+import { getBindingStatus, getValidAccessToken, clearBinding } from '../../services/binding.js';
 
 export default {
   data: {},
 
   onLoad() {
     wx.setBackgroundColor({ backgroundColor: '#000000' });
+    this.backPressCount = 0;
+    this.backPressTimer = null;
   },
 
   onVoiceWakeup() {
@@ -32,14 +35,35 @@ export default {
     if (control === CONTROL.ACTIVATE) {
       event.preventDefault();
       this.enterApp();
+      return;
+    }
+    // 连按 3 次返回键 → 清除绑定缓存（真机调试用）
+    if (control === CONTROL.BACK) {
+      event.preventDefault();
+      this.backPressCount += 1;
+      if (this.backPressTimer) clearTimeout(this.backPressTimer);
+      if (this.backPressCount >= 3) {
+        this.backPressCount = 0;
+        clearBinding();
+        wx.showToast({ title: '已清除绑定', icon: 'success', duration: 1500 });
+        return;
+      }
+      this.backPressTimer = setTimeout(() => {
+        this.backPressCount = 0;
+      }, 1500);
     }
   },
 
-  enterApp() {
-    const bound = wx.getStorageSync('deviceBound') === true;
-    wx.redirectTo({
-      url: bound ? '/pages/index/index' : '/pages/scan/scan'
-    });
+  async enterApp() {
+    const status = getBindingStatus();
+    if (status === 'unbound') {
+      wx.redirectTo({ url: '/pages/scan/scan' });
+      return;
+    }
+    // bound 或 expired → 都走 getValidAccessToken 实际验证 Server
+    // getValidAccessToken 内部会向 Server 验证 token，无效则清除缓存返回 null
+    const token = await getValidAccessToken();
+    wx.redirectTo({ url: token ? '/pages/index/index' : '/pages/scan/scan' });
   }
 }
 </script>
@@ -55,7 +79,7 @@ export default {
 <style>
 .welcome-card {
   width: 448px;
-  height: 200px;
+  height: 352px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
