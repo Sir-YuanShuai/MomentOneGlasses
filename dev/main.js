@@ -318,9 +318,11 @@ sendSpeechButton.addEventListener('click', sendSpeechTranscript);
 voiceWakeupButton.addEventListener('click', () => {
   if (!view || speechSessionState.listening) return;
   view.notifyUserInteraction();
-  view.dispatchVoiceWakeup('leqi');
+  // 先聚焦 canvas，确保 InkView 进入交互态后再派发唤醒，
+  // 否则 onVoiceWakeup 同步触发时 InkView 仍处于 blurred，SpeechRecognition.start() 会抛 InvalidStateError
   canvas.focus();
-  setStatus(speechStatus, '已发送语音唤醒，等待页面开启 STT。', 'active');
+  view.dispatchVoiceWakeup('leqi');
+  setStatus(speechStatus, '已发送语音唤醒（leqi），等待页面开启 STT。', 'active');
 });
 keyButtons.forEach((button) => {
   button.addEventListener('click', () => dispatchInkKey(button.dataset.keyCode));

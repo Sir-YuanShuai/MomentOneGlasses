@@ -46,19 +46,11 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的纯本地个人记忆应用�
 │   ├── roadmap/
 │   └── delivery/
 ├── pages/
-│   ├── index/index.ink
-│   └── cards/
-├── prompts/
-│   ├── moment-understanding.md
-│   ├── moment-understanding-v1.js
-│   └── tool-planner-v1.js
+│   ├── welcome/welcome.ink
+│   ├── scan/scan.ink
+│   └── index/index.ink
 └── services/
-    ├── agent-loop.js
-    ├── tools/
-    ├── format.js
-    ├── memory-repository.js
-    ├── memory-store.js
-    └── moment-ai.js
+    └── controls.js
 ```
 
 ## 本地开发与调试
@@ -136,6 +128,5 @@ npm run check:aix-size -- dist
 - [身份、同步与安全](./docs/security/IDENTITY_SYNC_SECURITY.md)
 - [跨平台实施路线图](./docs/roadmap/PLATFORM_ROADMAP.md)
 - [AIX 本地打包与体积校验](./docs/delivery/AIX_PACKAGING.md)
-- [Moment Understanding Prompt 设计说明](./prompts/moment-understanding.md)
 
-当前运行时 Prompt 以 `prompts/*.js` 为代码真源；当前 AIUI Tool Schema 以 `services/tools/definitions.js` 为代码真源。
+当前应用为页面导航 + 设备绑定流程，对话功能待实现。

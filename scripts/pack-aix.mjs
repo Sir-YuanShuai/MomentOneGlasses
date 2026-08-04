@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const packageConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
 const requiredEntries = ['AGENTS.md', 'app.js', 'app.json', 'pages', 'services'];
-const optionalEntries = ['assets', 'prompts'];
+const optionalEntries = ['assets'];
 const maxAixBytes = 10_000_000;
 
 const version = packageConfig.version;

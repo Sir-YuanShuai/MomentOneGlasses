@@ -55,6 +55,38 @@ wx.removeStorageSync
 - LanguageModel 根据本地 Moment 证据回答；
 - 模型不可用时使用确定性规则降级。
 
+#### 语音输入可用时机与边界
+
+```text
+用户唤醒（"一刻"）
+  ↓
+onVoiceWakeup 接收 keyword
+  ├─ keyword 为空或仅为唤醒词 → 进入默认交互（快速记录或意图监听）
+  └─ keyword 包含自然语言指令 → 直接交给 Agent Loop 识别意图
+        ↓
+      routeRecognizedText
+        ↓
+      runAgentTurn（LanguageModel.tools）
+        ├─ LLM 可用 → LLM 选择工具 → resolveToolCall 校验参数 → 执行
+        └─ LLM 不可用 → fallbackRecognizeIntent 规则降级 → 执行
+```
+
+**可用时机：**
+
+- 页面处于 `listening` 阶段时，`SpeechRecognition` 自动监听
+- 用户唤醒后跟随自然语言指令时，直接识别意图
+- 快速记录拍照完成后，自动进入监听询问记录内容
+- 媒体选择阶段（保存照片 / 重拍 / 不保存 / 录音），监听用户选择
+
+**边界：**
+
+- `SpeechRecognition` 依赖宿主能力：真机由 AIUI `speech` 模块提供，模拟器由 `hostCapabilities.speech` 桥接
+- `LanguageModel` 依赖宿主能力：真机由 AIUI 提供，模拟器由 `/api/language-model` 代理
+- LLM 不可用时，`fallbackRecognizeIntent` 提供确定性规则降级（纯正则，覆盖有限）
+- `resolveToolCall` 信任 LLM 的工具调用决策，仅校验参数完整性；安全由页面两阶段确认保证
+- 模拟器 mock 模式下，需在调试面板手动输入模拟语音文本
+- 模拟器 browser 模式下，使用浏览器 Web Speech API（需 HTTPS 或 localhost）
+
 ### 2.4 第一视角画面
 
 快速记录开启时使用分阶段流程：
