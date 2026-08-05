@@ -18,6 +18,7 @@ import {
 } from '../services/binding-core.js';
 import { decodeCameraImage } from '../services/image-decode.js';
 import { decodeQrPixels } from '../services/qr-fallback.js';
+import { createDeviceId } from '../services/device-id.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -233,6 +234,14 @@ function testBindingService() {
   assert.doesNotMatch(bindingSource, /verifyTokenWithServer/, 'binding must not probe the Web management endpoint as validation');
 }
 
+
+function testDeviceId() {
+  const first = createDeviceId();
+  const second = createDeviceId();
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.notEqual(first, second, 'device ids must be unique');
+}
+
 function testBindingParsing() {
   const code = 'A'.repeat(22);
   assert.equal(normalizeBindingCode(code), code);
@@ -348,6 +357,7 @@ testPagesVoiceFirst();
 testIndexEntryRouting();
 testScanPage();
 testBindingService();
+testDeviceId();
 testBindingParsing();
 testIndexPage();
 testConversationServices();

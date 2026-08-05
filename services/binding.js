@@ -15,6 +15,7 @@ import {
   shouldClearBindingAfterRefreshFailure,
   validateTokenResponse
 } from './binding-core.js';
+import { createDeviceId } from './device-id.js';
 
 function request(options) {
   return new Promise((resolve, reject) => {
@@ -73,8 +74,14 @@ export function getDeviceId() {
   const stored = readStored(STORAGE_KEYS.DEVICE_ID);
   if (typeof stored === 'string' && stored) return stored;
 
-  const id = crypto.randomUUID();
-  wx.setStorageSync(STORAGE_KEYS.DEVICE_ID, id);
+  const id = createDeviceId();
+  try {
+    wx.setStorageSync(STORAGE_KEYS.DEVICE_ID, id);
+  } catch (error) {
+    const storageError = new Error('Unable to persist device id');
+    storageError.code = 'STORAGE_ERROR';
+    throw storageError;
+  }
   return id;
 }
 
@@ -109,7 +116,10 @@ export async function requestBinding(bindingCode, options = {}) {
     deviceId = getDeviceId();
   } catch (error) {
     console.error('Unable to create device id:', error);
-    return { success: false, error: 'STORAGE_ERROR' };
+    return {
+      success: false,
+      error: error && error.code === 'STORAGE_ERROR' ? 'STORAGE_ERROR' : 'DEVICE_ID_ERROR'
+    };
   }
 
   try {

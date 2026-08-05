@@ -43,6 +43,7 @@ const ERROR_HINTS = {
   NETWORK_ERROR: '网络不可用，请检查连接后重试',
   SERVER_ERROR: '绑定服务暂时不可用，请稍后重试',
   INVALID_TOKEN_RESPONSE: '绑定响应不完整，请稍后重试',
+  DEVICE_ID_ERROR: '无法创建设备标识，请重新打开应用',
   STORAGE_ERROR: '无法保存绑定信息，请检查设备存储',
   UNKNOWN: '绑定失败，请重新扫码'
 };

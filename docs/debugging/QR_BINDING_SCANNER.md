@@ -1,8 +1,8 @@
 # 扫码绑定：相机与二维码识别排障记录
 
-- 状态：Craft 已验证二维码内容识别；真实 binding code 换 token 待继续验证
+- 状态：Craft 已验证二维码内容识别；deviceId 生成已改为显式 Crypto 模块，真实 binding code 换 token 待继续验证
 - 日期：2026-08-05
-- 适用版本：MomentOneGlasses `0.3.1`
+- 适用版本：MomentOneGlasses `0.3.2`
 - 范围：仅 `MomentOneGlasses`，不修改 Server
 
 ## 1. 最终采用的页面与流程
@@ -186,7 +186,16 @@ CameraContext
 crypto is not defined
 ```
 
-失败发生在 `getDeviceId()`，请求尚未发送到 Server，也没有进入 token 持久化。因此 UI 显示“无法保存绑定信息”并不准确；下一步应替换 `crypto.randomUUID()` 的硬依赖，并把设备 ID 生成失败与存储失败拆分成不同错误码。
+失败发生在 `getDeviceId()`，请求尚未发送到 Server，也没有进入 token 持久化。因此 UI 显示“无法保存绑定信息”并不准确。
+
+修复方式：
+
+- 按 AIUI 官方入口使用 `import crypto from 'crypto'`，不再依赖未注入的全局 `crypto`；
+- 优先调用模块的 `randomUUID()`；
+- 保留符合 UUID v4 格式的本地降级生成；
+- `DEVICE_ID_ERROR` 与 `STORAGE_ERROR` 分开映射。
+
+下一验证点是真实 binding code 的 `/oauth/token` 响应。
 
 ## 7. 回归检查清单
 
