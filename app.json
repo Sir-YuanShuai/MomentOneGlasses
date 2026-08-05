@@ -1,8 +1,7 @@
 {
   "pages": [
-    "pages/welcome/welcome",
-    "pages/scan/scan",
     "pages/index/index",
+    "pages/scan/scan",
     "pages/cards/moment-result",
     "pages/cards/memory-answer"
   ],

@@ -42,7 +42,7 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 
 - 设备根据 `VERSION` 判断是否需要更新缓存的页面文件
 - 如果 `VERSION` 固定不变，设备会误判"版本未变"而不触发更新，旧页面文件会持续缓存
-- `scripts/pack-aix.mjs` 每次打包时通过 `crypto.randomUUID()` 生成新的 UUID 写入 `VERSION`
+- `scripts/pack-aix.mjs` 每次打包时通过 `crypto.randomUUID()` 生成新的 UUID 写入 `VERSION`，并将同一 UUID 写入打包 staging 内的 `services/build-info.js`；index 首页据此显示当前 AIX 构建短码
 - **禁止**将 `VERSION` 改回固定版本号或可重复值
 
 参考：AIUI 官方文档 `0-guide/bundle/aix.md` — "每个 AIX 包在打包时都会自动生成一个唯一的 UUID `VERSION` 文件，用于版本校验和热更新。"
@@ -69,25 +69,28 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
   - `services/controls.js`：按键映射，页面交互基础
   - `services/config.js`：Server 地址、OAuth 端点、存储 key 常量
   - `services/binding.js`：设备绑定服务（deviceId 管理、绑定状态、请求绑定、token 刷新、清除绑定、二维码解析）
+  - `services/image-decode.js`：AIX 内置的 PNG/JPEG → RGBA 解码器（由打包脚本生成）
+  - `services/qr-fallback.js`：本地 QR 像素解码兜底（由打包脚本生成）
+
+AIUI 官方相机链路是 `wx.createCameraContext().takePhoto()` 返回一次照片的 `ArrayBuffer`，没有已确认的实时视频扫码 API，也不依赖云端识别。由于不同宿主的 Canvas/Barcode 构造器注册不一致，发布代码不加载 `barcode` / `canvas` 模块；扫码页在 `onReady()` 后创建相机上下文，将照片解码为 RGBA 后交给 AIX 内置 QR 解码器。
 
 ## 当前页面结构
 
 ```
-pages/welcome/welcome.ink   # 欢迎页（入口），点击/唤醒后根据绑定状态分流
+pages/index/index.ink       # 唯一入口；未绑定时显示绑定门，已绑定时进入 Moment 对话
 pages/scan/scan.ink         # 扫码绑定页，自动打开相机扫码 → 调 requestBinding 换 token
-pages/index/index.ink       # 主页（本地 Moment 对话与工具执行），进入时校验 token
 ```
 
 ## 设备绑定流程
 
-1. **welcome 页**：`getBindingStatus()` 返回 `bound` / `unbound` / `expired`
-   - `bound` → 跳转 index
-   - `expired` → 尝试 `tryRefresh()`，成功跳 index，失败跳 scan
-   - `unbound` → 跳转 scan
+1. **index 页（唯一入口）**：调用 `getBindingStatus()` / `getValidAccessToken()`
+   - `bound` → 直接显示 Moment 对话入口
+   - `expired` → 尝试 `tryRefresh()`，成功显示 Moment 入口，失败停留绑定门
+   - `unbound` → 显示绑定门，按确认键进入 scan
 2. **scan 页**：扫码 → `parseQrPayload(value)` 提取 binding_code → `requestBinding(code)` 换 token
-   - 成功 → 跳转 index
+   - 成功 → 返回 index，index 读取新 token 后显示 Moment 入口
    - 失败 → 显示错误提示，恢复扫码
-3. **index 页**：`onLoad` 调 `getValidAccessToken()` 确保 token 可用，不可用则跳 scan
+3. **index 页**：未绑定时不自动跳转，避免入口页面闪烁和路由循环；绑定门由确认键或唤醒进入 scan
 
 ## 本地存储 key
 
@@ -100,6 +103,7 @@ pages/index/index.ink       # 主页（本地 Moment 对话与工具执行），
 | `accessToken` | JWT access_token（有效期以 Server 返回的 `expires_in` 为准） |
 | `refreshToken` | JWT refresh_token（30 天硬上限，不滚动；过期后重新扫码） |
 | `accessTokenExpiresAt` | access_token 过期时间戳（秒） |
+| `refreshTokenExpiresAt` | refresh_token 首次绑定起 30 天的本地硬截止时间戳（秒） |
 
 ## 禁止事项
 

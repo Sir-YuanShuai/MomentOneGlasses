@@ -16,10 +16,10 @@ npm run pack:aix
 dist/moment-one-<package.json version>.aix
 ```
 
-例如当前版本 `0.3.0` 的默认产物为：
+例如当前版本 `0.3.1` 的默认产物为：
 
 ```text
-dist/moment-one-0.3.0.aix
+dist/moment-one-0.3.1.aix
 ```
 
 `dist/` 已被 `.gitignore` 忽略，打包产物默认不会提交到 Git。
@@ -143,7 +143,7 @@ VERSION
 发布前仍必须独立执行一次体积校验：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.3.0.aix
+npm run check:aix-size -- dist/moment-one-0.3.1.aix
 ```
 
 也可以检查目录中的全部 `.aix` 文件：
@@ -169,13 +169,13 @@ npm run pack:aix
 npm run check:aix-size -- dist
 
 # 4. 查看包内文件
-unzip -l dist/moment-one-0.3.0.aix
+unzip -l dist/moment-one-0.3.1.aix
 
 # 5. 检查包内版本
-unzip -p dist/moment-one-0.3.0.aix VERSION
+unzip -p dist/moment-one-0.3.1.aix VERSION
 ```
 
-如果包名版本不是 `0.3.0`，请把示例路径替换成实际的 `package.json#version`；`VERSION` 文件内容仍应是 UUID。
+如果包名版本不是 `0.3.1`，请把示例路径替换成实际的 `package.json#version`；`VERSION` 文件内容仍应是 UUID。
 
 ## 7. 当前验证结果
 
@@ -185,13 +185,13 @@ unzip -p dist/moment-one-0.3.0.aix VERSION
 |---|---|
 | `npm run check` | 通过 |
 | AIX 生成 | 通过 |
-| 产物 | `dist/moment-one-0.3.0.aix` |
+| 产物 | `dist/moment-one-0.3.1.aix` |
 | 文件大小 | 以 `npm run pack:aix` 的最新输出为准，必须低于或等于 10 MB |
 | 10 MB 校验 | 通过 |
 | 包内 `VERSION` | 每次打包生成的唯一 UUID |
 | AIX Reader 解析 | 通过 |
 | Reader 识别标题 | `一刻 · Moment One` |
-| Reader 识别注册页面 | 以 `app.json#pages` 为准，当前入口为 `pages/welcome/welcome` |
+| Reader 识别注册页面 | 以 `app.json#pages` 为准，当前入口为 `pages/index/index` |
 
 该大小仅代表当时的项目内容。页面、服务、提示词或静态资源变化后，应以最新打包结果为准。
 
@@ -259,7 +259,7 @@ Moment One 处理私人生活记忆。打包前必须确认：
 可以使用以下命令人工审查包内清单：
 
 ```bash
-unzip -l dist/moment-one-0.3.0.aix
+unzip -l dist/moment-one-0.3.1.aix
 ```
 
 ## 10. 本地打包与正式发布的边界

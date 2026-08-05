@@ -29,6 +29,18 @@
         "localDebugPhotoEndpoint": {
           "type": "string",
           "description": "仅本地调试使用的预置照片读取地址"
+        },
+        "bindingGate": {
+          "type": "boolean",
+          "description": "首次进入 index 时显示的设备绑定入口"
+        },
+        "softwareVersion": {
+          "type": "string",
+          "description": "当前应用语义版本"
+        },
+        "buildId": {
+          "type": "string",
+          "description": "当前 AIX 构建短码"
         }
       }
     }
@@ -57,6 +69,7 @@ import {
   VIDEO_RECORDING_SUPPORTED
 } from '../../services/record-media.js';
 import { CONTROL, resolveControl } from '../../services/controls.js';
+import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 
 const INSTANT_MEMORY_KEY = 'moment-one:instant-memory:v1';
 
@@ -87,7 +100,10 @@ export default {
     },
     hasLastMoment: false,
     sttLabel: '待命',
-    errorMessage: ''
+    errorMessage: '',
+    bindingGate: true,
+    softwareVersion: APP_VERSION,
+    buildId: String(BUILD_ID).slice(0, 8)
   },
 
   onLoad(input) {
@@ -102,12 +118,20 @@ export default {
     this.pendingAudio = null;
     this.pendingAction = null;
     this.audioRecorder = null;
-    // localMode=true 时跳过绑定验证（数据仅存本地）
+    // index 是唯一应用入口。未绑定时停留在 index 的绑定门，不再经过 welcome。
     const isLocalMode = input && (input.localMode === true || input.localMode === 'true');
     this.localMode = Boolean(isLocalMode);
-    if (!this.localMode) {
-      this.ensureBinding();
-    }
+    this.bindingReady = this.localMode;
+    this.bindingCheckPending = !this.localMode;
+    this.setData({
+      bindingGate: !this.localMode,
+      phase: this.localMode ? 'idle' : 'binding',
+      statusTitle: this.localMode ? '请直接说出你的意图' : '设备尚未绑定',
+      statusDetail: this.localMode ? '记录、查询、回顾和设置都会自动识别' : '按确认键打开扫码绑定，完成后自动进入',
+      softwareVersion: APP_VERSION,
+      buildId: String(BUILD_ID).slice(0, 8)
+    });
+    if (!this.localMode) this.ensureBinding();
 
     let instantMemoryEnabled = true;
     try {
@@ -136,6 +160,7 @@ export default {
 
   onShow() {
     this.pageVisible = true;
+    if (!this.localMode && !this.bindingReady) return;
     if (this.pendingInitialUtterance) {
       const utterance = this.pendingInitialUtterance;
       this.pendingInitialUtterance = '';
@@ -196,11 +221,33 @@ export default {
 
   async ensureBinding() {
     const token = await getValidAccessToken();
+    this.bindingCheckPending = false;
     if (!token) {
-      // 跳到 welcome 而不是 scan，让用户从入口重新走流程
-      // welcome 会根据状态分流到 scan 或 index
-      wx.redirectTo({ url: '/pages/welcome/welcome' });
+      this.bindingReady = false;
+      this.setData({
+        bindingGate: true,
+        phase: 'binding',
+        statusTitle: '设备尚未绑定',
+        statusDetail: '按确认键打开扫码绑定，完成后自动进入'
+      });
+      return null;
     }
+
+    this.bindingReady = true;
+    this.setData({
+      bindingGate: false,
+      phase: 'idle',
+      statusTitle: '请直接说出你的意图',
+      statusDetail: '记录、查询、回顾和设置都会自动识别'
+    });
+    // onShow 可能早于 token 检查完成；绑定成功后主动恢复 index 首屏流程。
+    this.onShow();
+    return token;
+  },
+
+  openScanPage() {
+    if (this.bindingCheckPending) return;
+    wx.redirectTo({ url: '/pages/scan/scan' });
   },
 
   isBusy() {
@@ -1308,6 +1355,10 @@ export default {
   },
 
   onVoiceWakeup(event) {
+    if (this.data.bindingGate) {
+      this.openScanPage();
+      return;
+    }
     const utterance = String((event && event.keyword) || '').trim();
     const containsIntent = /记录|记下|记住|保存|新增|添加|问|找|查|回顾|总结|修改|更正|纠正|更新|删除|清空|确认|取消|配置|设置|即刻记忆|快速记录|重新拍|重拍|录音|视频|不保存照片/.test(utterance);
     if (utterance && utterance !== '一刻' && containsIntent) {
@@ -1361,6 +1412,12 @@ export default {
     const control = resolveControl(event.code);
     if (!control) return;
 
+    if (this.data.bindingGate) {
+      event.preventDefault();
+      if (control === CONTROL.ACTIVATE) this.openScanPage();
+      return;
+    }
+
     if (control === CONTROL.BACK) {
       if (this.isBusy()) {
         event.preventDefault();
@@ -1392,7 +1449,16 @@ export default {
 
 <page>
   <view class="app-shell">
-    <view class="top-row">
+    <view class="binding-gate" ink:if="{{bindingGate}}">
+      <text class="binding-title">一刻</text>
+      <text class="binding-status">{{statusTitle}}</text>
+      <text class="binding-detail">{{statusDetail}}</text>
+      <text class="binding-action">确认：打开扫码</text>
+      <text class="binding-version">v{{softwareVersion}} · build {{buildId}}</text>
+    </view>
+
+    <view class="main-shell" ink:if="{{bindingGate === false}}">
+      <view class="top-row">
       <view class="brand-block">
         <text class="brand-title">一刻</text>
         <text class="brand-subtitle">无需选择功能，直接说</text>
@@ -1454,11 +1520,12 @@ export default {
       </scroll-view>
     </card>
 
-    <view class="intent-guide">
-      <text class="guide-title">一句话即可</text>
-      <text class="guide-example">“今天第一次带妈妈看海” · “我上周去过哪里”</text>
-      <text class="guide-example">“修改上一条地点” · “删除那条面馆记录”</text>
-      <text class="guide-meta">快速记录开启时：先拍照预览，再对话确认保存形式</text>
+      <view class="intent-guide">
+        <text class="guide-title">一句话即可</text>
+        <text class="guide-example">“今天第一次带妈妈看海” · “我上周去过哪里”</text>
+        <text class="guide-example">“修改上一条地点” · “删除那条面馆记录”</text>
+        <text class="guide-meta">快速记录开启时：先拍照预览，再对话确认保存形式</text>
+      </view>
     </view>
   </view>
 </page>
@@ -1468,9 +1535,66 @@ export default {
   width: 448px;
   height: 352px;
   box-sizing: border-box;
-  padding: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background-color: var(--color-background);
   color: var(--color-text-primary);
+}
+
+.binding-gate {
+  width: 416px;
+  height: 320px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: var(--card-padding);
+  border: var(--card-border-width) solid var(--card-border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.binding-title {
+  color: var(--color-primary);
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 700;
+}
+
+.binding-status {
+  color: var(--color-text-primary);
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+.binding-detail, .binding-action {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.binding-action {
+  color: var(--color-primary);
+  margin-top: 10px;
+}
+
+.binding-version {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  margin-top: 8px;
+}
+
+.main-shell {
+  width: 448px;
+  height: 352px;
+  box-sizing: border-box;
+  padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);

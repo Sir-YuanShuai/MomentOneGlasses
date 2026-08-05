@@ -124,7 +124,7 @@ pages/cards/memory-answer
 
 ### 2.6 设备绑定（鉴权边界）
 
-AIX 已接入 welcome → scan → index 的设备绑定代码路径：
+AIX 已接入 index 绑定门 → scan → index 的设备绑定代码路径：
 
 - Web 生成 `momentone://bind?code=<binding_code>` 二维码；
 - 眼镜扫码后只调用 MomentOneServer `/oauth/token`，不接触 Casdoor 凭据；

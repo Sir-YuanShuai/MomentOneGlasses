@@ -1,3 +1,4 @@
+import mockBindingQrUrl from './fixtures/mock-binding-qr.png';
 function bytesFromBlob(blob) {
   return blob.arrayBuffer().then((buffer) => new Uint8Array(buffer));
 }
@@ -164,6 +165,19 @@ async function captureBrowserPhoto(quality, onProgress = () => {}) {
     video.remove();
   }
 }
+let mockBindingQrImage = null;
+
+async function loadMockBindingQr() {
+  if (mockBindingQrImage) return mockBindingQrImage;
+  mockBindingQrImage = await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('无法加载扫码调试二维码 fixture'));
+    image.src = mockBindingQrUrl;
+  });
+  return mockBindingQrImage;
+}
+
 async function createMockPhoto() {
   const width = 896;
   const height = 704;
@@ -198,7 +212,16 @@ async function createMockPhoto() {
 
   context.strokeStyle = '#40ff5e';
   context.lineWidth = 6;
-  context.strokeRect(230, 210, 436, 300);
+  context.strokeRect(230, 180, 436, 370);
+
+  // 本地扫码回归用固定 QR。payload 使用无效测试 code，识别成功后应进入
+  // 服务端的“绑定码无效”分支，绝不生成真实绑定或写入 token。
+  const qrImage = await loadMockBindingQr();
+  context.fillStyle = '#ffffff';
+  context.fillRect(390, 205, 320, 320);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(qrImage, 390, 205, 320, 320);
+  context.imageSmoothingEnabled = true;
 
   context.font = '24px monospace';
   context.fillText(new Date().toISOString(), 54, 650);

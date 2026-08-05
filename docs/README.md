@@ -25,6 +25,10 @@
 
 - [跨平台实施路线图](./roadmap/PLATFORM_ROADMAP.md)
 
+## Debugging
+
+- [扫码绑定：相机与二维码识别排障记录](./debugging/QR_BINDING_SCANNER.md)
+
 ## Delivery
 
 - [AIX 本地打包与体积校验](./delivery/AIX_PACKAGING.md)

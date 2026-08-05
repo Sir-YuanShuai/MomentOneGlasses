@@ -1,6 +1,6 @@
 {
   "name": "moment-one-aiui",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "一刻 YiKe · Moment One — AI-native personal memory system for Rokid AI Glasses",
@@ -15,6 +15,10 @@
     "@yodaos-pkg/ink": "^0.14.0"
   },
   "devDependencies": {
+    "jpeg-js": "^0.4.4",
+    "jsqr": "^1.4.0",
+    "rolldown": "^1.1.5",
+    "upng-js": "^2.1.0",
     "vite": "^8.1.5"
   },
   "scripts": {
@@ -24,7 +28,9 @@
     "test:mvp": "node tests/mvp.test.mjs",
     "verify:mvp": "npm run check && npm run test:mvp && npm run build:preview",
     "check:aix-size": "node scripts/check-aix-size.mjs",
-    "pack:aix": "node scripts/pack-aix.mjs"
+    "bundle:image-decode": "node scripts/bundle-image-decode.mjs",
+    "pack:aix": "npm run bundle:image-decode && npm run bundle:qr-fallback && node scripts/pack-aix.mjs",
+    "bundle:qr-fallback": "node scripts/bundle-qr-fallback.mjs"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"

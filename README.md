@@ -8,16 +8,15 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接�
 
 - 设备扫码绑定：眼镜端扫描 Web 端二维码，通过 OAuth 2.1 QR Binding grant 向 Server 换取 JWT access_token + refresh_token，本地持久化。
 - Token 自动刷新：access_token 过期前自动用 refresh_token 刷新；refresh_token 最长 30 天且不滚动，过期、撤销或刷新失败后清除本地绑定并要求重新扫码。
-- 绑定状态分流：welcome 页根据本地绑定状态（bound / unbound / expired）自动分流到主页或扫码页。
-- 页面导航与本地对话能力：welcome → scan → index 分流已接入，index 保留本地 Moment 记录、查询、修改和删除能力。
+- 统一入口：index 页根据本地绑定状态（bound / unbound / expired）显示 Moment 入口或绑定门，不再经过独立 welcome 页。
+- 页面导航与本地对话能力：index 绑定门 → scan → index Moment 入口，保留本地 Moment 记录、查询、修改和删除能力。
 
 ## 页面
 
 | Route | 说明 |
 |---|---|
-| `pages/welcome/welcome` | 欢迎页（入口），点击/唤醒后根据绑定状态分流 |
+| `pages/index/index` | 唯一入口；未绑定时显示绑定门，已绑定时进入本地 Moment 对话 |
 | `pages/scan/scan` | 扫码绑定页，自动打开相机扫码并换取 token |
-| `pages/index/index` | 主页（本地 Moment 对话与工具执行），进入时校验 token |
 
 ## 项目结构
 
@@ -42,11 +41,13 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接�
 │   ├── roadmap/
 │   └── delivery/
 ├── pages/
-│   ├── welcome/welcome.ink
+│   ├── index/index.ink
 │   ├── scan/scan.ink
-│   └── index/index.ink
+│   └── cards/
 ├── services/
 │   ├── binding.js      # 设备绑定服务（deviceId、绑定状态、请求绑定、token 刷新、二维码解析）
+│   ├── image-decode.js # AIX 内置图片解码器（PNG/JPEG → RGBA）
+│   ├── qr-fallback.js  # 本地 QR 像素解码兜底
 │   ├── config.js       # Server 地址、OAuth 端点、存储 key 常量
 │   └── controls.js     # 按键映射
 └── tests/
@@ -55,10 +56,10 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接�
 
 ## 设备绑定流程
 
-1. **Web 端**登录后创建绑定会话，生成二维码（`momentone://bind?code=<22 字符 URL-safe binding_code>`）
-2. **眼镜端** welcome 页点击进入 → 未绑定时跳转 scan 页
-3. **scan 页**打开相机扫码 → `parseQrPayload()` 提取 binding_code → `requestBinding(code)` 调 POST /oauth/token 换 token
-4. 绑定成功 → 跳转 index 页，本地存储 access_token / refresh_token / expires_at
+1. **Web 端**登录后创建绑定会话，生成二维码（`momentone://bind?code=<URL-safe binding_code>`）
+2. **眼镜端**首次进入 index 页 → 未绑定时显示绑定门，按确认键进入 scan 页
+3. **scan 页**拍照后先将 PNG/JPEG 解码为 RGBA，再由 AIX 内置 QR 解码器识别 → `parseQrPayload()` 提取 binding_code → `requestBinding(code)` 调 POST /oauth/token 换 token
+4. 绑定成功 → 返回 index 页，本地存储 access_token / refresh_token / expires_at
 5. 后续进入 index 页时调 `getValidAccessToken()` 确保 token 可用，过期则自动刷新
 
 ## 本地开发与调试
@@ -103,7 +104,7 @@ npm run pack:aix
 默认产物为 `dist/moment-one-<version>.aix`，包内会生成唯一 UUID 格式的 `VERSION` 文件，用于避免设备缓存旧页面。打包完成后必须执行：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.3.0.aix
+npm run check:aix-size -- dist/moment-one-0.3.1.aix
 ```
 
 也可以传入包含 AIX 包的目录；任意文件超限都会返回非零退出码并阻止发布：

@@ -6,6 +6,18 @@ import { createMemoryRepository } from '../services/memory-repository.js';
 import { resolveRecordMediaChoice, VIDEO_RECORDING_SUPPORTED } from '../services/record-media.js';
 import { MOMENT_TOOL_DEFINITIONS } from '../services/tools/definitions.js';
 import { resolveToolCall } from '../services/tools/registry.js';
+import {
+  extractSpokenBindingCode,
+  findBindingCode,
+  parseImageSize
+} from '../services/qr-scanner.js';
+import {
+  normalizeBindingCode,
+  parseQrPayload,
+  resolveTokenError
+} from '../services/binding-core.js';
+import { decodeCameraImage } from '../services/image-decode.js';
+import { decodeQrPixels } from '../services/qr-fallback.js';
 
 function memoryStorage() {
   const values = new Map();
@@ -141,9 +153,8 @@ function testMemoryRepository() {
 function testAppConfig() {
   const appConfig = JSON.parse(fs.readFileSync('app.json', 'utf8'));
   assert.deepEqual(appConfig.pages, [
-    'pages/welcome/welcome',
-    'pages/scan/scan',
     'pages/index/index',
+    'pages/scan/scan',
     'pages/cards/moment-result',
     'pages/cards/memory-answer',
   ]);
@@ -172,35 +183,43 @@ function testPagesVoiceFirst() {
   });
 }
 
-function testWelcomeRouting() {
-  const source = fs.readFileSync('pages/welcome/welcome.ink', 'utf8');
-  assert.match(source, /getBindingStatus/, 'welcome must call getBindingStatus');
-  assert.match(source, /pages\/scan\/scan/, 'welcome must route to scan page when unbound');
-  assert.match(source, /pages\/index\/index/, 'welcome must route to index page when bound');
+function testIndexEntryRouting() {
+  const source = fs.readFileSync('pages/index/index.ink', 'utf8');
+  assert.match(source, /bindingGate/, 'index must own the first-entry binding gate');
+  assert.match(source, /openScanPage/, 'index must open scan page from the binding gate');
+  assert.match(source, /APP_VERSION/, 'index must display the unified app version');
+  assert.match(source, /BUILD_ID/, 'index must display the packaged build id');
+  assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not redirect through the removed welcome page');
 }
 
 function testScanPage() {
   const source = fs.readFileSync('pages/scan/scan.ink', 'utf8');
-  assert.match(source, /BarcodeDetector/, 'scan page must reference BarcodeDetector');
-  assert.match(source, /parseQrPayload/, 'scan page must parse QR payload');
+  assert.doesNotMatch(source, /from ['\"](?:barcode|canvas)['\"]/, 'scan page must avoid host barcode/canvas constructor loading');
+  assert.match(source, /decodeQrPixels/, 'scan page must use the bundled local QR decoder');
+  assert.match(source, /onReady/, 'scan page must initialize camera after page readiness');
+  assert.match(source, /findBindingCode/, 'scan page must parse QR detections');
+  assert.match(source, /parseImageSize/, 'scan page must provide image dimensions to BarcodeDetector');
   assert.match(source, /requestBinding/, 'scan page must call requestBinding');
+  assert.match(source, /QR content/, 'scan page must print detected QR content before validation');
   assert.match(source, /pages\/index\/index/, 'scan page must redirect to index after binding');
   // 语音绑定模式（设备不支持扫码时的替代方案）
   assert.match(source, /SpeechRecognition/, 'scan page must support voice binding fallback');
   // 本地模式跳过（连按 2 次返回键）
   assert.match(source, /localMode/, 'scan page must support local mode skip');
-  // 返回键应回到 welcome（避免卡死）
-  assert.match(source, /pages\/welcome\/welcome/, 'scan page back must go to welcome');
+  // 返回键回到唯一入口 index 的绑定门
+  assert.match(source, /pages\/index\/index/, 'scan page back must return to index binding gate');
 }
 
 function testBindingService() {
   assert.equal(fs.existsSync('services/config.js'), true, 'config.js must exist');
   assert.equal(fs.existsSync('services/binding.js'), true, 'binding.js must exist');
+  assert.equal(fs.existsSync('services/build-info.js'), true, 'build info module must exist');
 
   const configSource = fs.readFileSync('services/config.js', 'utf8');
   assert.match(configSource, /SERVER_BASE_URL/, 'config must define SERVER_BASE_URL');
   assert.match(configSource, /OAUTH_TOKEN_URL/, 'config must define OAUTH_TOKEN_URL');
   assert.match(configSource, /STORAGE_KEYS/, 'config must define STORAGE_KEYS');
+  assert.match(configSource, /REFRESH_TOKEN_HARD_TTL_SECONDS/, 'config must enforce the refresh hard limit');
 
   const bindingSource = fs.readFileSync('services/binding.js', 'utf8');
   assert.match(bindingSource, /getDeviceId/, 'binding must export getDeviceId');
@@ -210,6 +229,35 @@ function testBindingService() {
   assert.match(bindingSource, /getValidAccessToken/, 'binding must export getValidAccessToken');
   assert.match(bindingSource, /clearBinding/, 'binding must export clearBinding');
   assert.match(bindingSource, /wx\.request/, 'binding must use wx.request for network calls');
+  assert.match(bindingSource, /refreshTokenExpiresAt/, 'binding must preserve the hard refresh deadline');
+  assert.doesNotMatch(bindingSource, /verifyTokenWithServer/, 'binding must not probe the Web management endpoint as validation');
+}
+
+function testBindingParsing() {
+  const code = 'A'.repeat(22);
+  assert.equal(normalizeBindingCode(code), code);
+  assert.equal(parseQrPayload(`momentone://bind?code=${code}`), code);
+  assert.equal(parseQrPayload(`momentone://bind?code=${encodeURIComponent(code)}`), code);
+  assert.equal(parseQrPayload('https://example.com/?code=' + code), null);
+  assert.equal(parseQrPayload('momentone://bind?code=too-short'), null);
+  assert.equal(parseQrPayload(`momentone://bind?code=${code}&code=${code}`), null);
+  assert.equal(extractSpokenBindingCode(`绑定码是 ${code}`), code);
+  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }, { rawValue: `momentone://bind?code=${code}` }]), code);
+  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }]), null);
+  assert.equal(resolveTokenError({ error: { code: 'BINDING_CODE_EXPIRED' } }, 400), 'BINDING_CODE_EXPIRED');
+  assert.equal(resolveTokenError({}, 503), 'SERVER_ERROR');
+
+  const png = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0, 0, 0, 0x03, 0, 0, 0, 0x02
+  ]);
+  assert.deepEqual(parseImageSize(png), { width: 3, height: 2 });
+  const fixture = fs.readFileSync('dev/fixtures/mock-binding-qr.png');
+  const decoded = decodeCameraImage(fixture, 'image/png');
+  assert.deepEqual({ width: decoded.width, height: decoded.height }, { width: 320, height: 320 });
+  assert.equal(decoded.data.byteLength, 320 * 320 * 4, 'decoded image must be RGBA pixels for BarcodeDetector');
+  assert.equal(decodeQrPixels(decoded.data, decoded.width, decoded.height), 'momentone://bind?code=MockBindingCode_1234567');
 }
 
 function testIndexPage() {
@@ -219,8 +267,9 @@ function testIndexPage() {
   assert.match(source, /saveMoment/, 'index page must save moments');
   assert.match(source, /searchMoments/, 'index page must search moments');
   assert.match(source, /getValidAccessToken/, 'index page must validate binding token');
-  // 未绑定时跳回 welcome 重新走流程（避免与 scan 形成死循环）
-  assert.match(source, /pages\/welcome\/welcome/, 'index page must redirect to welcome when unbound');
+  // 未绑定时由 index 自己显示绑定门，不再经过 welcome
+  assert.match(source, /bindingGate/, 'index must show binding gate when unbound');
+  assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not reference removed welcome page');
   // 支持本地模式跳过绑定
   assert.match(source, /localMode/, 'index page must support localMode parameter');
 }
@@ -247,6 +296,14 @@ function testConversationServices() {
   assert.equal(fs.existsSync(promptsDir), true, 'prompts/ directory must exist');
   assert.equal(fs.existsSync('prompts/moment-understanding-v1.js'), true, 'moment-understanding-v1 prompt must exist');
   assert.equal(fs.existsSync('prompts/tool-planner-v1.js'), true, 'tool-planner-v1 prompt must exist');
+}
+
+function testBuildInfo() {
+  const packageVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+  const buildInfo = fs.readFileSync('services/build-info.js', 'utf8');
+  assert.match(buildInfo, new RegExp(`APP_VERSION = ['\"]${packageVersion}['\"]`), 'development build info must match package.json version');
+  const packScript = fs.readFileSync('scripts/pack-aix.mjs', 'utf8');
+  assert.match(packScript, /services', 'build-info\.js/, 'packaging must write build info into the AIX staging area');
 }
 
 function testAppJsConfig() {
@@ -288,11 +345,13 @@ testToolPolicy();
 testMemoryRepository();
 testAppConfig();
 testPagesVoiceFirst();
-testWelcomeRouting();
+testIndexEntryRouting();
 testScanPage();
 testBindingService();
+testBindingParsing();
 testIndexPage();
 testConversationServices();
+testBuildInfo();
 testAppJsConfig();
 testDocumentationLinks();
 console.log('Local MVP regression checks passed.');

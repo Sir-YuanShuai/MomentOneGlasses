@@ -1,22 +1,25 @@
 import wx from 'wx';
 import {
-  SERVER_BASE_URL,
+  BINDING_REQUEST_TIMEOUT_MS,
   OAUTH_TOKEN_URL,
   QR_BINDING_GRANT_TYPE,
   REFRESH_GRANT_TYPE,
-  QR_PAYLOAD_SCHEME,
-  QR_PAYLOAD_HOST,
+  REFRESH_TOKEN_HARD_TTL_SECONDS,
   STORAGE_KEYS,
   TOKEN_REFRESH_BUFFER_SECONDS
 } from './config.js';
-
-// ============================================================
-// 内部工具：将 wx.request 包装为 Promise
-// ============================================================
+import {
+  normalizeBindingCode,
+  parseQrPayload,
+  resolveTokenError,
+  shouldClearBindingAfterRefreshFailure,
+  validateTokenResponse
+} from './binding-core.js';
 
 function request(options) {
   return new Promise((resolve, reject) => {
     wx.request({
+      timeout: BINDING_REQUEST_TIMEOUT_MS,
       ...options,
       success: resolve,
       fail: reject
@@ -24,121 +27,134 @@ function request(options) {
   });
 }
 
-// ============================================================
-// 设备 ID：首次生成 UUID v4 并持久化，后续读取
-// ============================================================
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function readStored(key) {
+  try {
+    return wx.getStorageSync(key);
+  } catch (error) {
+    console.warn(`Unable to read binding storage ${key}:`, error);
+    return undefined;
+  }
+}
+
+function removeStored(key) {
+  try {
+    wx.removeStorageSync(key);
+  } catch (error) {
+    console.warn(`Unable to clear binding storage ${key}:`, error);
+  }
+}
+
+function writeTokenBundle(bundle, options = {}) {
+  const refreshTokenExpiresAt = options.refreshTokenExpiresAt
+    || nowSeconds() + REFRESH_TOKEN_HARD_TTL_SECONDS;
+  const entries = [
+    [STORAGE_KEYS.BINDING_ID, bundle.bindingId],
+    [STORAGE_KEYS.ACCESS_TOKEN, bundle.accessToken],
+    [STORAGE_KEYS.REFRESH_TOKEN, bundle.refreshToken],
+    [STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT, nowSeconds() + bundle.expiresIn],
+    [STORAGE_KEYS.REFRESH_TOKEN_EXPIRES_AT, refreshTokenExpiresAt],
+  ];
+
+  try {
+    for (const [key, value] of entries) wx.setStorageSync(key, value);
+    return true;
+  } catch (error) {
+    console.error('Unable to persist device binding:', error);
+    clearBinding();
+    return false;
+  }
+}
 
 export function getDeviceId() {
-  let id = wx.getStorageSync(STORAGE_KEYS.DEVICE_ID);
-  if (id) return id;
-  id = crypto.randomUUID();
+  const stored = readStored(STORAGE_KEYS.DEVICE_ID);
+  if (typeof stored === 'string' && stored) return stored;
+
+  const id = crypto.randomUUID();
   wx.setStorageSync(STORAGE_KEYS.DEVICE_ID, id);
   return id;
 }
 
-// ============================================================
-// 绑定状态：检查本地是否有完整且未过期的 binding 数据
-// 返回 'bound' | 'unbound' | 'expired'
-// ============================================================
-
 export function getBindingStatus() {
-  const accessToken = wx.getStorageSync(STORAGE_KEYS.ACCESS_TOKEN);
-  const refreshToken = wx.getStorageSync(STORAGE_KEYS.REFRESH_TOKEN);
-  const expiresAt = wx.getStorageSync(STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT);
+  const accessToken = readStored(STORAGE_KEYS.ACCESS_TOKEN);
+  const refreshToken = readStored(STORAGE_KEYS.REFRESH_TOKEN);
+  const accessExpiresAt = Number(readStored(STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT));
+  const refreshExpiresAt = Number(readStored(STORAGE_KEYS.REFRESH_TOKEN_EXPIRES_AT));
 
-  if (!accessToken || !refreshToken || !expiresAt) {
+  if (!accessToken || !refreshToken || !accessExpiresAt || !refreshExpiresAt) {
+    clearBinding();
     return 'unbound';
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now >= expiresAt - TOKEN_REFRESH_BUFFER_SECONDS) {
-    return 'expired';
+  const now = nowSeconds();
+  if (now >= refreshExpiresAt) {
+    clearBinding();
+    return 'unbound';
   }
-
+  if (now >= accessExpiresAt - TOKEN_REFRESH_BUFFER_SECONDS) return 'expired';
   return 'bound';
 }
 
-// ============================================================
-// 解析二维码 payload：momentone://bind?code=xxx
-// 返回 binding_code 或 null
-// ============================================================
-
-export function parseQrPayload(value) {
-  if (typeof value !== 'string' || !value) return null;
-  const prefix = QR_PAYLOAD_SCHEME + '://' + QR_PAYLOAD_HOST;
-  if (!value.startsWith(prefix)) return null;
-  const queryStart = value.indexOf('?');
-  if (queryStart < 0) return null;
-  const search = value.slice(queryStart + 1);
-  // 手动解析 query string（AIUI 未确认 URLSearchParams）
-  const pairs = search.split('&');
-  for (const pair of pairs) {
-    const eq = pair.indexOf('=');
-    if (eq < 0) continue;
-    const key = pair.slice(0, eq);
-    if (key === 'code') {
-      const val = pair.slice(eq + 1);
-      return val ? decodeURIComponent(val) : null;
-    }
-  }
-  return null;
-}
-
-// ============================================================
-// 请求绑定：用 binding_code 换 token
-// 成功：存 binding_id + access_token + refresh_token + expires_at
-// 返回 { success: true } 或 { success: false, error: 'ERROR_CODE' }
-// ============================================================
+export { normalizeBindingCode, parseQrPayload };
 
 export async function requestBinding(bindingCode, options = {}) {
-  const deviceId = getDeviceId();
-  const body = {
-    grant_type: QR_BINDING_GRANT_TYPE,
-    binding_code: bindingCode,
-    device_id: deviceId,
-    device_name: options.deviceName || 'Rokid Glasses',
-    device_type: options.deviceType || 'rokid-glasses'
-  };
+  const normalizedCode = normalizeBindingCode(bindingCode);
+  if (!normalizedCode) return { success: false, error: 'BINDING_CODE_INVALID' };
+
+  let deviceId;
+  try {
+    deviceId = getDeviceId();
+  } catch (error) {
+    console.error('Unable to create device id:', error);
+    return { success: false, error: 'STORAGE_ERROR' };
+  }
 
   try {
     const res = await request({
       url: OAUTH_TOKEN_URL,
       method: 'POST',
-      data: body,
+      data: {
+        grant_type: QR_BINDING_GRANT_TYPE,
+        binding_code: normalizedCode,
+        device_id: deviceId,
+        device_name: options.deviceName || 'Rokid Glasses',
+        device_type: options.deviceType || 'rokid-glasses'
+      },
       header: { 'content-type': 'application/x-www-form-urlencoded' },
       dataType: 'json'
     });
 
-    if (res.statusCode === 200 && res.data && res.data.access_token) {
-      const data = res.data;
-      const now = Math.floor(Date.now() / 1000);
-      wx.setStorageSync(STORAGE_KEYS.BINDING_ID, data.binding_id);
-      wx.setStorageSync(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-      wx.setStorageSync(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
-      wx.setStorageSync(
-        STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT,
-        now + (data.expires_in || 3600)
-      );
-      return { success: true };
+    if (res.statusCode === 200) {
+      const bundle = validateTokenResponse(res.data);
+      if (!bundle) return { success: false, error: 'INVALID_TOKEN_RESPONSE' };
+      if (!writeTokenBundle(bundle)) return { success: false, error: 'STORAGE_ERROR' };
+      return { success: true, bindingId: bundle.bindingId };
     }
 
-    // OAuth 错误响应
-    const error = (res.data && (res.data.error || res.data.code)) || 'UNKNOWN';
-    return { success: false, error };
-  } catch (err) {
-    return { success: false, error: 'NETWORK_ERROR' };
+    return {
+      success: false,
+      error: resolveTokenError(res.data, res.statusCode),
+      statusCode: res.statusCode
+    };
+  } catch (error) {
+    const message = error && error.errMsg ? error.errMsg : '';
+    return {
+      success: false,
+      error: /timeout/i.test(message) ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR'
+    };
   }
 }
 
-// ============================================================
-// 刷新 access_token：用 refresh_token 换新 token
-// 成功：更新本地 token + expires_at，返回新 access_token
-// 失败：清除本地 binding，返回 null
-// ============================================================
-
 async function refreshAccessToken() {
-  const refreshToken = wx.getStorageSync(STORAGE_KEYS.REFRESH_TOKEN);
-  if (!refreshToken) return null;
+  const refreshToken = readStored(STORAGE_KEYS.REFRESH_TOKEN);
+  const refreshTokenExpiresAt = Number(readStored(STORAGE_KEYS.REFRESH_TOKEN_EXPIRES_AT));
+  if (!refreshToken || !refreshTokenExpiresAt || nowSeconds() >= refreshTokenExpiresAt) {
+    clearBinding();
+    return null;
+  }
 
   try {
     const res = await request({
@@ -152,86 +168,38 @@ async function refreshAccessToken() {
       dataType: 'json'
     });
 
-    if (res.statusCode === 200 && res.data && res.data.access_token) {
-      const data = res.data;
-      const now = Math.floor(Date.now() / 1000);
-      wx.setStorageSync(STORAGE_KEYS.ACCESS_TOKEN, data.access_token);
-      wx.setStorageSync(STORAGE_KEYS.REFRESH_TOKEN, data.refresh_token);
-      wx.setStorageSync(
-        STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT,
-        now + (data.expires_in || 3600)
-      );
-      return data.access_token;
+    if (res.statusCode === 200) {
+      const bundle = validateTokenResponse(res.data);
+      if (!bundle) return null;
+      // 兼容 Server 返回 rotation token，但保留初次绑定时的 30 天硬截止时间。
+      if (!writeTokenBundle(bundle, { refreshTokenExpiresAt })) return null;
+      return bundle.accessToken;
     }
 
-    // refresh_token 失效（binding 已撤销 / refresh_token 过期）→ 清除本地
-    clearBinding();
+    const errorCode = resolveTokenError(res.data, res.statusCode);
+    if (shouldClearBindingAfterRefreshFailure(res.statusCode, errorCode)) clearBinding();
     return null;
-  } catch (err) {
+  } catch (error) {
+    // 网络抖动时保留本地凭据，避免把可恢复错误误判成解绑。
     return null;
   }
 }
-
-// ============================================================
-// 获取有效 access_token：
-// - 未过期 → 先向 Server 验证，有效则返回，无效则清除并返回 null
-// - 已过期 → 尝试刷新，成功返回新 token，失败返回 null
-// ============================================================
 
 export async function getValidAccessToken() {
   const status = getBindingStatus();
   if (status === 'unbound') return null;
-  if (status === 'bound') {
-    const token = wx.getStorageSync(STORAGE_KEYS.ACCESS_TOKEN);
-    // 向 Server 验证 token 是否真的有效（防止本地缓存与 Server 状态不一致）
-    const valid = await verifyTokenWithServer(token);
-    if (valid) return token;
-    // Server 拒绝 → 清除本地绑定
-    clearBinding();
-    return null;
-  }
-  // expired → 尝试刷新
+  if (status === 'bound') return readStored(STORAGE_KEYS.ACCESS_TOKEN) || null;
   return refreshAccessToken();
 }
 
-// ============================================================
-// 向 Server 验证 access_token 是否有效
-// 用 GET /v1/device/bindings 调一次需要鉴权的接口
-// 200 → 有效，401/403 → 无效
-// ============================================================
-
-async function verifyTokenWithServer(token) {
-  if (!token) return false;
-  try {
-    const res = await request({
-      url: SERVER_BASE_URL + '/v1/device/bindings',
-      method: 'GET',
-      header: { 'Authorization': 'Bearer ' + token },
-      dataType: 'json'
-    });
-    return res.statusCode === 200;
-  } catch (err) {
-    // 网络错误时保守起见返回 true，避免离线时无法使用
-    return true;
-  }
-}
-
-// ============================================================
-// 清除本地所有 binding 相关数据
-// ============================================================
-
 export function clearBinding() {
-  wx.removeStorageSync(STORAGE_KEYS.BINDING_ID);
-  wx.removeStorageSync(STORAGE_KEYS.ACCESS_TOKEN);
-  wx.removeStorageSync(STORAGE_KEYS.REFRESH_TOKEN);
-  wx.removeStorageSync(STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT);
+  removeStored(STORAGE_KEYS.BINDING_ID);
+  removeStored(STORAGE_KEYS.ACCESS_TOKEN);
+  removeStored(STORAGE_KEYS.REFRESH_TOKEN);
+  removeStored(STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT);
+  removeStored(STORAGE_KEYS.REFRESH_TOKEN_EXPIRES_AT);
 }
-
-// ============================================================
-// 静默尝试刷新（welcome 页用）：成功返回 true，失败返回 false
-// ============================================================
 
 export async function tryRefresh() {
-  const token = await refreshAccessToken();
-  return !!token;
+  return Boolean(await refreshAccessToken());
 }

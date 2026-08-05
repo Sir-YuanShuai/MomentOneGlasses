@@ -56,6 +56,17 @@ try {
   // 固定版本号会导致设备误判"版本未变"而不触发更新，旧页面文件会持续缓存。
   const buildUuid = crypto.randomUUID();
   fs.writeFileSync(path.join(stagingDirectory, 'VERSION'), buildUuid);
+  // Runtime does not expose packaged files as a general filesystem API. Embed the
+  // same UUID in the staged module so the index page can show exactly which AIX
+  // build is running and make stale device caches visible during verification.
+  const buildInfo = [
+    '// Generated during AIX packaging. Do not edit manually.',
+    `export const APP_VERSION = ${JSON.stringify(version)};`,
+    `export const BUILD_ID = ${JSON.stringify(buildUuid)};`,
+    `export const BUILD_LABEL = ${JSON.stringify(`v${version} · ${buildUuid.slice(0, 8)}`)};`,
+    ''
+  ].join('\n');
+  fs.writeFileSync(path.join(stagingDirectory, 'services', 'build-info.js'), buildInfo);
   packagedEntries.push('VERSION');
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

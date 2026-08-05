@@ -1,15 +1,17 @@
 <script def>
 {
   "navigationBarTitleText": "绑定设备",
-  "description": "设备绑定页。支持扫码绑定（如设备支持 BarcodeDetector）和语音输入绑定码两种方式；连按两次返回键可跳过绑定进入本地模式。",
+  "description": "Guides a Rokid Glasses user through QR device binding, showing camera, validation, network, success, and recoverable error states.",
   "schema": {
     "data": {
       "type": "object",
       "properties": {
-        "status": { "type": "string" },
-        "hint": { "type": "string" },
-        "mode": { "type": "string", "description": "当前绑定模式：scan / voice / local" }
-      }
+        "status": { "type": "string", "description": "Primary binding status shown to the user" },
+        "hint": { "type": "string", "description": "Hardware-key or recovery guidance" },
+        "modeLabel": { "type": "string" },
+        "phase": { "type": "string", "enum": ["initializing", "ready", "capturing", "binding", "success", "error", "listening"] }
+      },
+      "required": ["status", "hint", "modeLabel", "phase"]
     }
   }
 }
@@ -17,254 +19,316 @@
 
 <script setup>
 import wx from 'wx';
-import BarcodeDetector from 'barcode';
 import { SpeechRecognition } from 'speech';
 import { CONTROL, resolveControl } from '../../services/controls.js';
-import { parseQrPayload, requestBinding } from '../../services/binding.js';
+import { requestBinding } from '../../services/binding.js';
+import { decodeCameraImage } from '../../services/image-decode.js';
+import { decodeQrPixels } from '../../services/qr-fallback.js';
+import {
+  extractSpokenBindingCode,
+  findBindingCode,
+  parseImageSize,
+  toImageBytes
+} from '../../services/qr-scanner.js';
 
 const ERROR_HINTS = {
-  BINDING_CODE_EXPIRED: '二维码已过期，请在手机端刷新',
-  BINDING_CODE_USED: '二维码已被使用，请在手机端重新生成',
-  DEVICE_ALREADY_BOUND: '此设备已绑定其他账号',
-  NETWORK_ERROR: '网络不可用，请检查后重试',
-  UNKNOWN: '绑定失败，请重试'
+  BINDING_CODE_EXPIRED: '二维码已过期，请在 Web 端刷新后重试',
+  BINDING_CODE_USED: '二维码已使用，请在 Web 端重新生成',
+  BINDING_CODE_INVALID: '这不是有效的一刻绑定二维码',
+  INVALID_BINDING_CODE: '这不是有效的一刻绑定二维码',
+  DEVICE_ALREADY_BOUND: '此眼镜已绑定其他账号，请先在 Web 端撤销',
+  INVALID_REQUEST: '绑定请求无效，请重新生成二维码',
+  RATE_LIMITED: '请求过于频繁，请稍后再试',
+  REQUEST_TIMEOUT: '连接超时，请检查网络后重试',
+  NETWORK_ERROR: '网络不可用，请检查连接后重试',
+  SERVER_ERROR: '绑定服务暂时不可用，请稍后重试',
+  INVALID_TOKEN_RESPONSE: '绑定响应不完整，请稍后重试',
+  STORAGE_ERROR: '无法保存绑定信息，请检查设备存储',
+  UNKNOWN: '绑定失败，请重新扫码'
 };
-
-// ============================================================
-// 从 JPEG 字节中解析 width / height
-// ============================================================
-function parseJpegSize(data) {
-  const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
-  if (!bytes || bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
-    return null;
-  }
-  let offset = 2;
-  while (offset + 3 < bytes.length) {
-    if (bytes[offset] !== 0xff) break;
-    const marker = bytes[offset + 1];
-    if (
-      (marker >= 0xc0 && marker <= 0xc3) ||
-      (marker >= 0xc5 && marker <= 0xc7) ||
-      (marker >= 0xc9 && marker <= 0xcb) ||
-      (marker >= 0xcd && marker <= 0xcf)
-    ) {
-      const height = (bytes[offset + 5] << 8) | bytes[offset + 6];
-      const width = (bytes[offset + 7] << 8) | bytes[offset + 8];
-      return { width, height };
-    }
-    const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
-    offset += 2 + length;
-  }
-  return null;
-}
-
-// ============================================================
-// 从语音识别结果中提取绑定码
-// 支持格式：直接读码、"绑定码是 xxx"、"code is xxx"
-// ============================================================
-function extractBindingCode(transcript) {
-  const text = String(transcript || '').trim();
-  if (!text) return null;
-  // 直接就是绑定码（字母数字组合）
-  if (/^[A-Za-z0-9]{6,32}$/.test(text)) return text;
-  // "绑定码是 xxx" / "code is xxx" / "码是 xxx"
-  const patterns = [
-    /绑定码[是为：:\s]+([A-Za-z0-9]+)/i,
-    /code\s+is\s+([A-Za-z0-9]+)/i,
-    /码[是为：:\s]+([A-Za-z0-9]+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) return match[1];
-  }
-  // 去掉空格和标点后尝试
-  const cleaned = text.replace(/[\s，。、！？.,!?]/g, '');
-  if (/^[A-Za-z0-9]{6,32}$/.test(cleaned)) return cleaned;
-  return null;
-}
 
 export default {
   data: {
-    status: '正在初始化',
+    status: '正在检查扫码能力',
     hint: '请稍候',
-    mode: 'scan'
+    modeLabel: '扫码绑定',
+    phase: 'initializing'
   },
 
   async onLoad() {
     wx.setBackgroundColor({ backgroundColor: '#000000' });
+    this.pageActive = true;
     this.binding = false;
+    this.currentMode = 'scan';
     this.capturing = false;
-    this.detector = null;
     this.camera = null;
+    this.scannerState = 'initializing';
     this.recognition = null;
     this.recognitionActive = false;
     this.backPressCount = 0;
     this.backPressTimer = null;
 
-    // ============================================================
-    // 检测 BarcodeDetector 能力（模块导入 + 全局回退）
-    // ============================================================
-    const DetectorCtor = BarcodeDetector || globalThis.BarcodeDetector;
-    if (DetectorCtor) {
-      try {
-        const formats = await DetectorCtor.getSupportedFormats();
-        if (formats && formats.length > 0) {
-          this.detector = formats.includes('qr_code')
-            ? new DetectorCtor({ formats: ['qr_code'] })
-            : new DetectorCtor();
-        } else {
-          this.detector = new DetectorCtor();
-        }
-      } catch (e) {
-        try {
-          this.detector = new DetectorCtor();
-        } catch (e2) {
-          this.detector = null;
-        }
-      }
-    }
+    // 不同 AIUI 宿主对 onReady 的生命周期支持不完全一致；onLoad 先排队，
+    // onReady 再幂等补偿，避免扫码页永久停留在初始化状态。
+    setTimeout(() => this.initializeScanner(), 0);
+  },
 
-    // ============================================================
-    // 检测相机能力
-    // ============================================================
-    if (wx.media && wx.media.createCameraContext) {
-      try {
-        this.camera = wx.media.createCameraContext();
-      } catch (e) {
-        this.camera = null;
-      }
-    }
-
-    // ============================================================
-    // 根据能力选择模式
-    // ============================================================
-    if (this.detector && this.camera) {
-      this.setData({
-        status: '按下确认键扫码',
-        hint: '将二维码对准相机后按确认键。或按下一键切换语音输入',
-        mode: 'scan'
-      });
-    } else {
-      // 设备不支持扫码 → 直接进入语音绑定模式
-      this.switchToVoiceMode();
-    }
+  async onReady() {
+    await this.initializeScanner();
   },
 
   onUnload() {
+    this.pageActive = false;
     this.binding = false;
     this.capturing = false;
+    if (this.backPressTimer) clearTimeout(this.backPressTimer);
+    this.backPressTimer = null;
     this.stopRecognition();
   },
 
-  onKeyUp(event) {
+  async initializeScanner() {
+    if (this.scannerState === 'ready' || this.scannerState === 'unsupported' || this.scannerState === 'error') return;
+    if (this.scannerInitializing) return;
+    this.scannerInitializing = true;
+    this.scannerState = 'initializing';
+    this.setData({
+      status: '正在检查扫码能力',
+      hint: '请稍候',
+      phase: 'initializing'
+    });
+    try {
+      console.info('[moment-one:binding-scan] camera capability check', {
+        hasTopLevelCreateCameraContext: typeof wx.createCameraContext === 'function',
+        hasMedia: Boolean(wx.media),
+        hasMediaCreateCameraContext: Boolean(wx.media && typeof wx.media.createCameraContext === 'function')
+      });
+      if (typeof wx.createCameraContext === 'function') {
+        this.camera = wx.createCameraContext();
+      } else if (wx.media && typeof wx.media.createCameraContext === 'function') {
+        this.camera = wx.media.createCameraContext();
+      } else {
+        this.camera = null;
+      }
+    } catch (error) {
+      this.camera = null;
+      this.scannerState = 'error';
+      console.warn('[moment-one:binding-scan] camera context creation failed', {
+        name: error && error.name,
+        message: error && error.message
+      });
+    }
+
+    this.scannerInitializing = false;
+    if (!this.camera) {
+      this.scannerState = this.scannerState === 'error' ? 'error' : 'unsupported';
+      this.switchToVoiceMode(
+        this.scannerState === 'error' ? '相机初始化失败，请稍后重试' : '当前环境无法使用相机扫码'
+      );
+      return;
+    }
+
+    this.scannerState = 'ready';
+    console.info('[moment-one:binding-scan] camera context ready');
+    this.switchToScanMode();
+  },
+
+  async onKeyUp(event) {
     const control = resolveControl(event.code);
     if (!control) return;
 
+    if (this.scannerState === 'initializing') {
+      event.preventDefault();
+      this.setData({
+        status: '仍在检查扫码能力',
+        hint: '请稍候，暂不要重复按确认键',
+        phase: 'initializing'
+      });
+      return;
+    }
+
     if (control === CONTROL.BACK) {
       event.preventDefault();
-      // 连按 2 次返回键 → 跳过绑定，进入本地模式
-      this.backPressCount += 1;
-      if (this.backPressTimer) clearTimeout(this.backPressTimer);
-      if (this.backPressCount >= 2) {
-        this.backPressCount = 0;
-        this.enterLocalMode();
-        return;
-      }
-      this.backPressTimer = setTimeout(() => {
-        this.backPressCount = 0;
-      }, 1500);
-      // 单次返回 → 回到欢迎页
-      wx.redirectTo({ url: '/pages/welcome/welcome' });
+      this.handleBack();
       return;
     }
 
     if (control === CONTROL.ACTIVATE) {
       event.preventDefault();
-      if (this.data.mode === 'scan') {
-        this.captureAndDetect();
-      } else if (this.data.mode === 'voice') {
-        this.startVoiceBinding();
-      }
+      if (this.currentMode === 'scan') await this.captureAndDetect();
+      else if (this.currentMode === 'voice') this.startVoiceBinding();
       return;
     }
 
     if (control === CONTROL.NEXT) {
       event.preventDefault();
-      // 切换绑定模式
-      if (this.data.mode === 'scan') {
-        this.switchToVoiceMode();
-      } else if (this.data.mode === 'voice' && this.detector && this.camera) {
-        this.switchToScanMode();
-      }
-      return;
+      if (this.binding || this.capturing) return;
+      if (this.currentMode === 'scan') this.switchToVoiceMode();
+      else if (this.currentMode === 'voice' && this.camera) this.switchToScanMode();
     }
   },
 
-  // ============================================================
-  // 模式切换
-  // ============================================================
-  switchToVoiceMode() {
+  handleBack() {
+    if (this.binding || this.capturing) {
+      this.setData({ hint: '当前操作完成后可返回' });
+      return;
+    }
+
+    this.backPressCount += 1;
+    if (this.backPressCount >= 2) {
+      if (this.backPressTimer) clearTimeout(this.backPressTimer);
+      this.backPressTimer = null;
+      this.backPressCount = 0;
+      this.enterLocalMode();
+      return;
+    }
+
+    this.setData({
+      status: '再次按返回键可跳过绑定',
+      hint: '不操作将返回入口',
+      phase: 'ready'
+    });
+    this.backPressTimer = setTimeout(() => {
+      this.backPressTimer = null;
+      this.backPressCount = 0;
+      if (this.pageActive) wx.redirectTo({ url: '/pages/index/index' });
+    }, 1500);
+  },
+
+  switchToVoiceMode(reason = '') {
+    this.currentMode = 'voice';
     this.stopRecognition();
     this.setData({
-      status: '语音输入绑定码',
-      hint: '按确认键开始说话，读出绑定码。连按 2 次返回键跳过',
-      mode: 'voice'
+      status: reason || '语音输入绑定码',
+      hint: '按确认键读出绑定码；按下一键返回扫码',
+      modeLabel: '语音备用',
+      phase: reason ? 'error' : 'ready'
     });
   },
 
   switchToScanMode() {
+    this.currentMode = 'scan';
     this.stopRecognition();
     this.setData({
-      status: '按下确认键扫码',
-      hint: '将二维码对准相机后按确认键。或按下一键切换语音输入',
-      mode: 'scan'
+      status: '将绑定二维码对准相机',
+      hint: '按确认键拍照识别；按下一键切换语音',
+        modeLabel: '扫码绑定',
+      phase: 'ready'
     });
   },
 
-  // ============================================================
-  // 扫码模式
-  // ============================================================
   async captureAndDetect() {
     if (this.capturing || this.binding) return;
-    if (!this.detector || !this.camera) {
-      this.switchToVoiceMode();
+    if (this.scannerState === 'initializing') {
+      this.setData({ status: '仍在检查扫码能力', hint: '请稍候', phase: 'initializing' });
+      return;
+    }
+    if (this.scannerState !== 'ready' || !this.camera) {
+      this.switchToVoiceMode('当前环境无法使用相机扫码');
       return;
     }
 
     this.capturing = true;
-    this.setData({ status: '正在拍照识别', hint: '请保持稳定' });
+    this.setData({
+      status: '正在拍照识别',
+      hint: '请保持二维码稳定',
+      phase: 'capturing'
+    });
 
     try {
-      const photo = await this.camera.takePhoto({ quality: 'low' });
+      // takePhoto 必须从确认键等交互调用链触发。
+      const photo = await this.camera.takePhoto({ quality: 'high' });
       if (!photo || !photo.data) {
-        this.setData({ status: '拍照失败', hint: '请重试' });
+        this.showScanError('未取得相机画面');
         return;
       }
 
-      const size = parseJpegSize(photo.data);
-      const image = size
-        ? { width: size.width, height: size.height, data: photo.data }
-        : { width: 640, height: 480, data: photo.data };
-
-      const codes = await this.detector.detect(image);
-      if (codes && codes.length > 0) {
-        const value = codes[0].rawValue || '';
-        this.onScanSuccess(value);
+      const photoBytes = toImageBytes(photo.data);
+      const encodedSize = parseImageSize(photo.data);
+      const decoded = decodeCameraImage(photo.data, photo.mimeType);
+      const photoWidth = Number(photo.width);
+      const photoHeight = Number(photo.height);
+      const size = decoded
+        ? { width: decoded.width, height: decoded.height }
+        : Number.isFinite(photoWidth) && photoWidth > 0
+          && Number.isFinite(photoHeight) && photoHeight > 0
+          ? { width: photoWidth, height: photoHeight }
+          : encodedSize;
+      console.info('[moment-one:binding-scan] photo captured', {
+        mimeType: photo.mimeType || '',
+        byteLength: photoBytes ? photoBytes.byteLength : 0,
+        width: size && size.width,
+        height: size && size.height,
+        sizeSource: decoded ? 'decoded' : Number.isFinite(photoWidth) && Number.isFinite(photoHeight) ? 'host' : 'encoded',
+        pixelByteLength: decoded && decoded.data ? decoded.data.byteLength : 0
+      });
+      if (!size || (!decoded && !photoBytes)) {
+        console.warn('[moment-one:binding-scan] unable to prepare photo for detector');
+        this.showScanError('无法读取照片，请重新拍摄');
         return;
       }
 
-      this.setData({ status: '未识别到二维码', hint: '请重新对准后按确认键' });
+      this.setData({
+        status: `正在识别 ${size.width} × ${size.height} 照片`,
+        hint: '请稍候',
+        phase: 'capturing'
+      });
+      const detections = await this.detectFromPhoto(decoded ? decoded.data : photoBytes, size);
+      const detectedItems = Array.isArray(detections) ? detections : [];
+      detectedItems.forEach((item, index) => {
+        const rawValue = item && typeof item.rawValue === 'string' ? item.rawValue : '';
+        console.info('[moment-one:binding-scan] QR content', {
+          index,
+          format: item && item.format ? item.format : 'unknown',
+          rawValue
+        });
+      });
+
+      const bindingCode = findBindingCode(detectedItems);
+      console.info('[moment-one:binding-scan] detection complete', {
+        detectionCount: detectedItems.length,
+        formats: detectedItems.map((item) => item && item.format).filter(Boolean),
+        containsMomentOneBinding: Boolean(bindingCode)
+      });
+      if (bindingCode) {
+        await this.completeBinding(bindingCode);
+        return;
+      }
+
+      if (detectedItems.length > 0) {
+        this.showScanError('二维码内容不是一刻绑定链接');
+      } else {
+        this.showScanError('未识别到二维码，请靠近后重试');
+      }
     } catch (error) {
-      const msg = error && error.message ? error.message : '拍照或识别失败';
-      this.setData({ status: '扫码失败', hint: msg });
+      console.warn('[moment-one:binding-scan] capture or detection failed', {
+        name: error && error.name,
+        message: error && error.message
+      });
+      this.showScanError('扫码失败，请重新对准后重试');
     } finally {
       this.capturing = false;
     }
   },
 
-  // ============================================================
-  // 语音绑定模式
-  // ============================================================
+  async detectFromPhoto(bytes, size) {
+    // Craft 与真机统一走 AIX 内置 QR 解码器，避免宿主 Canvas/Barcode
+    // 构造器注册差异导致扫码页在模块加载阶段失败。
+    const rawValue = decodeQrPixels(bytes, size.width, size.height);
+    console.info('[moment-one:binding-scan] local QR decoder', {
+      found: Boolean(rawValue),
+      pixelByteLength: bytes && bytes.byteLength ? bytes.byteLength : 0
+    });
+    return rawValue ? [{ format: 'qr_code', rawValue }] : [];
+  },
+
+  showScanError(message) {
+    this.setData({
+      status: message,
+      hint: '按确认键重试；按下一键切换语音',
+      phase: 'error'
+    });
+  },
+
   startVoiceBinding() {
     if (this.recognitionActive || this.binding) return;
 
@@ -277,113 +341,136 @@ export default {
 
       this.recognition.onresult = (event) => {
         const result = event.results && event.results[0];
-        if (!result) return;
-        const transcript = result[0] && result[0].transcript;
-        this.setData({ status: '听到：' + (transcript || ''), hint: '正在解析绑定码' });
-        const code = extractBindingCode(transcript);
-        if (code) {
-          this.onScanSuccess(code);
-        } else {
+        const transcript = result && result[0] && result[0].transcript;
+        const bindingCode = extractSpokenBindingCode(transcript);
+        if (bindingCode) this.completeBinding(bindingCode);
+        else {
           this.setData({
-            status: '未识别到绑定码',
-            hint: '请按确认键重新说，读出绑定码'
+            status: '未听清有效绑定码',
+            hint: '按确认键重新读出绑定码',
+            phase: 'error'
           });
         }
       };
 
-      this.recognition.onerror = (event) => {
+      this.recognition.onerror = () => {
         this.recognitionActive = false;
-        const err = event && event.error ? event.error : '未知错误';
         this.setData({
           status: '语音识别失败',
-          hint: err + '，请重试'
+          hint: '按确认键重试',
+          phase: 'error'
         });
       };
-
       this.recognition.onend = () => {
         this.recognitionActive = false;
       };
 
-      this.recognition.start();
       this.recognitionActive = true;
-      this.setData({ status: '正在听', hint: '请读出绑定码' });
-    } catch (e) {
       this.setData({
-        status: '语音不可用',
-        hint: '请连按 2 次返回键跳过绑定'
+        status: '请读出绑定码',
+        hint: '正在聆听',
+        phase: 'listening'
+      });
+      this.recognition.start();
+    } catch (error) {
+      this.recognitionActive = false;
+      this.setData({
+        status: '语音输入不可用',
+        hint: this.camera ? '按下一键返回扫码' : '请稍后重试',
+        phase: 'error'
       });
     }
   },
 
   stopRecognition() {
-    if (this.recognition) {
-      try {
-        this.recognition.abort();
-      } catch (e) {
-        // ignore
-      }
-      this.recognition = null;
+    if (!this.recognition) return;
+    try {
+      this.recognition.abort();
+    } catch (error) {
+      console.warn('Unable to stop binding recognition:', error);
     }
+    this.recognition = null;
     this.recognitionActive = false;
   },
 
-  // ============================================================
-  // 绑定成功处理（扫码和语音共用）
-  // ============================================================
-  async onScanSuccess(value) {
+  async completeBinding(bindingCode) {
     if (this.binding) return;
-    this.binding = true;
-    this.capturing = false;
     this.stopRecognition();
-
-    // value 可能是二维码 payload（momentone://bind?code=xxx）或直接绑定码
-    let bindingCode = parseQrPayload(value);
-    if (!bindingCode) {
-      // 直接就是绑定码
-      bindingCode = /^[A-Za-z0-9]{6,32}$/.test(value) ? value : null;
-    }
-
-    if (!bindingCode) {
-      this.setData({ status: '非有效绑定码', hint: '请重试' });
-      this.binding = false;
-      return;
-    }
-
-    this.setData({ status: '正在绑定', hint: '请稍候' });
+    this.binding = true;
+    this.setData({
+      status: '二维码有效，正在绑定',
+      hint: '请保持网络连接',
+      phase: 'binding'
+    });
 
     const result = await requestBinding(bindingCode);
+    if (!this.pageActive) return;
+
     if (result.success) {
-      this.setData({ status: '绑定成功', hint: '正在进入主页' });
+      this.setData({
+        status: '绑定成功',
+        hint: '正在进入一刻',
+        phase: 'success'
+      });
       setTimeout(() => {
-        wx.redirectTo({ url: '/pages/index/index' });
-      }, 600);
+        if (this.pageActive) wx.redirectTo({ url: '/pages/index/index' });
+      }, 500);
       return;
     }
 
-    const hint = ERROR_HINTS[result.error] || ERROR_HINTS.UNKNOWN;
-    this.setData({ status: '绑定失败', hint });
     this.binding = false;
+    const message = ERROR_HINTS[result.error] || ERROR_HINTS.UNKNOWN;
+    this.setData({
+      status: message,
+      hint: this.currentMode === 'scan'
+        ? '按确认键重新扫码'
+        : '按确认键重新读出绑定码',
+      phase: 'error'
+    });
   },
 
-  // ============================================================
-  // 跳过绑定，进入本地模式
-  // ============================================================
   enterLocalMode() {
+    this.currentMode = 'local';
     this.stopRecognition();
-    this.setData({ status: '本地模式', hint: '跳过绑定，数据仅存于设备本地' });
+    this.setData({
+      status: '进入本地模式',
+      hint: 'Moment 仅保存在当前设备',
+      modeLabel: '本地模式',
+      phase: 'success'
+    });
     setTimeout(() => {
-      wx.redirectTo({ url: '/pages/index/index?localMode=true' });
-    }, 800);
+      if (this.pageActive) wx.redirectTo({ url: '/pages/index/index?localMode=true' });
+    }, 300);
   }
 }
 </script>
 
 <page>
   <view class="scan-screen">
-    <text class="scan-title">绑定设备</text>
-    <text class="scan-mode">{{mode === 'scan' ? '扫码模式' : (mode === 'voice' ? '语音模式' : '本地模式')}}</text>
-    <text class="scan-status">{{status}}</text>
-    <text class="scan-hint">{{hint}}</text>
+    <view class="scan-card phase-{{phase}}">
+      <view class="scan-header">
+        <text class="scan-title">绑定眼镜</text>
+        <text class="scan-mode">{{modeLabel}}</text>
+      </view>
+      <view class="scan-body">
+        <view class="scan-frame">
+          <view class="scan-corner corner-top-left"></view>
+          <view class="scan-corner corner-top-right"></view>
+          <view class="scan-corner corner-bottom-left"></view>
+          <view class="scan-corner corner-bottom-right"></view>
+          <text class="scan-symbol">QR</text>
+        </view>
+        <view class="scan-copy">
+          <text class="scan-status">{{status}}</text>
+          <text class="scan-hint">{{hint}}</text>
+        </view>
+      </view>
+      <view class="scan-footer">
+        <text>确认：执行</text>
+        <text>下一：切换</text>
+        <text>返回：退出</text>
+      </view>
+    </view>
   </view>
 </page>
 
@@ -393,38 +480,159 @@ export default {
   height: 352px;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  background-color: #000000;
+  padding: var(--spacing-md);
+  background-color: var(--color-background);
+}
+
+.scan-card {
+  width: 416px;
+  height: 320px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: var(--card-padding);
+  border-width: var(--card-border-width);
+  border-style: solid;
+  border-color: var(--card-border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.scan-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom-width: var(--border-width-thin);
+  border-bottom-style: solid;
+  border-bottom-color: var(--border-color-muted);
 }
 
 .scan-title {
-  color: #00ff7f;
+  color: var(--color-text-primary);
   font-size: 22px;
   line-height: 28px;
   font-weight: 700;
 }
 
 .scan-mode {
-  color: #00ff7f;
+  color: var(--color-primary);
   font-size: 12px;
   line-height: 16px;
-  opacity: 0.7;
+}
+
+.scan-body {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.scan-frame {
+  width: 120px;
+  height: 120px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-width: var(--border-width-thin);
+  border-style: solid;
+  border-color: var(--border-color-muted);
+  border-radius: var(--radius-md);
+}
+
+.scan-symbol {
+  color: var(--color-primary-60);
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+.scan-corner {
+  width: 24px;
+  height: 24px;
+  position: absolute;
+  border-color: var(--border-color-accent);
+}
+
+.corner-top-left {
+  top: 8px;
+  left: 8px;
+  border-top-width: var(--border-width-default);
+  border-top-style: solid;
+  border-left-width: var(--border-width-default);
+  border-left-style: solid;
+}
+
+.corner-top-right {
+  top: 8px;
+  right: 8px;
+  border-top-width: var(--border-width-default);
+  border-top-style: solid;
+  border-right-width: var(--border-width-default);
+  border-right-style: solid;
+}
+
+.corner-bottom-left {
+  bottom: 8px;
+  left: 8px;
+  border-bottom-width: var(--border-width-default);
+  border-bottom-style: solid;
+  border-left-width: var(--border-width-default);
+  border-left-style: solid;
+}
+
+.corner-bottom-right {
+  right: 8px;
+  bottom: 8px;
+  border-right-width: var(--border-width-default);
+  border-right-style: solid;
+  border-bottom-width: var(--border-width-default);
+  border-bottom-style: solid;
+}
+
+.scan-copy {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .scan-status {
-  color: #ffffff;
-  font-size: 14px;
-  line-height: 20px;
+  color: var(--color-text-primary);
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
 }
 
 .scan-hint {
-  color: #888888;
+  color: var(--color-text-secondary);
   font-size: 12px;
-  line-height: 16px;
-  text-align: center;
-  padding: 0 24px;
+  line-height: 18px;
+}
+
+.scan-footer {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top-width: var(--border-width-thin);
+  border-top-style: solid;
+  border-top-color: var(--border-color-muted);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.phase-success {
+  border-color: var(--border-color-success);
+}
+
+.phase-error {
+  border-color: var(--border-color-warning);
 }
 </style>
