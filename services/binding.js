@@ -62,6 +62,17 @@ function writeTokenBundle(bundle, options = {}) {
 
   try {
     for (const [key, value] of entries) wx.setStorageSync(key, value);
+    const persisted = entries.every(([key, expected]) => readStored(key) === expected);
+    if (!persisted) {
+      console.error('[moment-one:binding] token bundle read-back mismatch');
+      clearBinding();
+      return false;
+    }
+    console.info('[moment-one:binding] token bundle persisted', {
+      bindingId: bundle.bindingId,
+      accessTokenExpiresAt: entries[3][1],
+      refreshTokenExpiresAt
+    });
     return true;
   } catch (error) {
     console.error('Unable to persist device binding:', error);

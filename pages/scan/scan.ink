@@ -19,16 +19,16 @@
 
 <script setup>
 import wx from 'wx';
+import BarcodeDetector from 'barcode';
 import { SpeechRecognition } from 'speech';
 import { CONTROL, resolveControl } from '../../services/controls.js';
 import { requestBinding } from '../../services/binding.js';
 import { decodeCameraImage } from '../../services/image-decode.js';
+import { decodeWebP } from '../../services/webp.js';
 import { decodeQrPixels } from '../../services/qr-fallback.js';
 import {
   extractSpokenBindingCode,
-  findBindingCode,
-  parseImageSize,
-  toImageBytes
+  findBindingCode
 } from '../../services/qr-scanner.js';
 
 const ERROR_HINTS = {
@@ -63,73 +63,84 @@ export default {
     this.currentMode = 'scan';
     this.capturing = false;
     this.camera = null;
+    this.detector = null;
     this.scannerState = 'initializing';
     this.recognition = null;
     this.recognitionActive = false;
     this.backPressCount = 0;
     this.backPressTimer = null;
-
-    // 不同 AIUI 宿主对 onReady 的生命周期支持不完全一致；onLoad 先排队，
-    // onReady 再幂等补偿，避免扫码页永久停留在初始化状态。
-    setTimeout(() => this.initializeScanner(), 0);
   },
 
   async onReady() {
     await this.initializeScanner();
   },
 
+  async onShow() {
+    this.pageActive = true;
+    await this.initializeScanner();
+  },
+
+  onHide() {
+    // 官方 scanner sample 在页面隐藏时释放 CameraContext。正在进行的
+    // takePhoto 已持有本次调用所需的上下文，不在这里中止扫码状态。
+    this.camera = null;
+    if (!this.capturing && !this.binding) this.scannerState = 'initializing';
+  },
+
   onUnload() {
     this.pageActive = false;
     this.binding = false;
     this.capturing = false;
+    this.camera = null;
+    this.detector = null;
     if (this.backPressTimer) clearTimeout(this.backPressTimer);
     this.backPressTimer = null;
     this.stopRecognition();
   },
 
   async initializeScanner() {
-    if (this.scannerState === 'ready' || this.scannerState === 'unsupported' || this.scannerState === 'error') return;
-    if (this.scannerInitializing) return;
+    if (this.scannerInitializing || this.capturing || this.binding) return;
+    if (this.scannerState === 'ready' && this.camera && this.detector) return;
     this.scannerInitializing = true;
     this.scannerState = 'initializing';
     this.setData({
-      status: '正在检查扫码能力',
+      status: '正在连接相机预览',
       hint: '请稍候',
+      modeLabel: '扫码绑定',
       phase: 'initializing'
     });
+
     try {
-      console.info('[moment-one:binding-scan] camera capability check', {
-        hasTopLevelCreateCameraContext: typeof wx.createCameraContext === 'function',
-        hasMedia: Boolean(wx.media),
-        hasMediaCreateCameraContext: Boolean(wx.media && typeof wx.media.createCameraContext === 'function')
+      // 官方 scanner sample 使用页面中的 <camera> 组件配合
+      // wx.media.createCameraContext()，并直接使用 BarcodeDetector。
+      this.camera = wx.media && typeof wx.media.createCameraContext === 'function'
+        ? wx.media.createCameraContext()
+        : typeof wx.createCameraContext === 'function'
+          ? wx.createCameraContext()
+          : null;
+      this.detector = new BarcodeDetector();
+      console.info('[moment-one:binding-scan] official scanner capability ready', {
+        hasCameraContext: Boolean(this.camera),
+        hasBarcodeDetector: Boolean(this.detector)
       });
-      if (typeof wx.createCameraContext === 'function') {
-        this.camera = wx.createCameraContext();
-      } else if (wx.media && typeof wx.media.createCameraContext === 'function') {
-        this.camera = wx.media.createCameraContext();
-      } else {
-        this.camera = null;
-      }
     } catch (error) {
       this.camera = null;
-      this.scannerState = 'error';
-      console.warn('[moment-one:binding-scan] camera context creation failed', {
+      this.detector = null;
+      console.warn('[moment-one:binding-scan] official scanner initialization failed', {
         name: error && error.name,
         message: error && error.message
       });
+    } finally {
+      this.scannerInitializing = false;
     }
 
-    this.scannerInitializing = false;
-    if (!this.camera) {
-      this.scannerState = this.scannerState === 'error' ? 'error' : 'unsupported';
-      this.switchToVoiceMode(
-        this.scannerState === 'error' ? '相机初始化失败，请稍后重试' : '当前环境无法使用相机扫码'
-      );
+    if (!this.camera || !this.detector) {
+      this.scannerState = 'unsupported';
+      this.switchToVoiceMode('当前环境无法使用相机扫码');
       return;
     }
 
     this.scannerState = 'ready';
-    console.info('[moment-one:binding-scan] camera context ready');
     this.switchToScanMode();
   },
 
@@ -140,7 +151,7 @@ export default {
     if (this.scannerState === 'initializing') {
       event.preventDefault();
       this.setData({
-        status: '仍在检查扫码能力',
+        status: '正在连接相机预览',
         hint: '请稍候，暂不要重复按确认键',
         phase: 'initializing'
       });
@@ -191,7 +202,7 @@ export default {
     this.backPressTimer = setTimeout(() => {
       this.backPressTimer = null;
       this.backPressCount = 0;
-      if (this.pageActive) wx.redirectTo({ url: '/pages/index/index' });
+      if (this.pageActive) wx.redirectTo({ url: '/pages/index/index?fromBinding=true' });
     }, 1500);
   },
 
@@ -220,60 +231,43 @@ export default {
   async captureAndDetect() {
     if (this.capturing || this.binding) return;
     if (this.scannerState === 'initializing') {
-      this.setData({ status: '仍在检查扫码能力', hint: '请稍候', phase: 'initializing' });
+      this.setData({ status: '正在连接相机预览', hint: '请稍候', phase: 'initializing' });
       return;
     }
-    if (this.scannerState !== 'ready' || !this.camera) {
+    if (this.scannerState !== 'ready' || !this.camera || !this.detector) {
       this.switchToVoiceMode('当前环境无法使用相机扫码');
       return;
     }
 
     this.capturing = true;
     this.setData({
-      status: '正在拍照识别',
-      hint: '请保持二维码稳定',
+      status: '正在拍照并识别',
+      hint: '请保持二维码位于预览框内',
       phase: 'capturing'
     });
 
     try {
-      // takePhoto 必须从确认键等交互调用链触发。
-      const photo = await this.camera.takePhoto({ quality: 'high' });
-      if (!photo || !photo.data) {
-        this.showScanError('未取得相机画面');
-        return;
-      }
+      // 与官方 scanner sample 一致：等待 takePhoto Promise 完整结束后，
+      // 再按 mimeType 解码。真机主要返回 WebP，Craft 可能返回 PNG/JPEG。
+      const camera = this.camera;
+      const photo = await camera.takePhoto({ quality: 'high' });
+      if (!photo || !photo.data) throw new Error('Camera did not return image data.');
 
-      const photoBytes = toImageBytes(photo.data);
-      const encodedSize = parseImageSize(photo.data);
-      const decoded = decodeCameraImage(photo.data, photo.mimeType);
-      const photoWidth = Number(photo.width);
-      const photoHeight = Number(photo.height);
-      const size = decoded
-        ? { width: decoded.width, height: decoded.height }
-        : Number.isFinite(photoWidth) && photoWidth > 0
-          && Number.isFinite(photoHeight) && photoHeight > 0
-          ? { width: photoWidth, height: photoHeight }
-          : encodedSize;
-      console.info('[moment-one:binding-scan] photo captured', {
+      const input = await this.toBarcodeInput(photo);
+      console.info('[moment-one:binding-scan] photo prepared', {
         mimeType: photo.mimeType || '',
-        byteLength: photoBytes ? photoBytes.byteLength : 0,
-        width: size && size.width,
-        height: size && size.height,
-        sizeSource: decoded ? 'decoded' : Number.isFinite(photoWidth) && Number.isFinite(photoHeight) ? 'host' : 'encoded',
-        pixelByteLength: decoded && decoded.data ? decoded.data.byteLength : 0
+        width: input.width,
+        height: input.height,
+        pixelByteLength: input.data && input.data.byteLength ? input.data.byteLength : 0,
+        pixelFormat: input.pixelFormat
       });
-      if (!size || (!decoded && !photoBytes)) {
-        console.warn('[moment-one:binding-scan] unable to prepare photo for detector');
-        this.showScanError('无法读取照片，请重新拍摄');
-        return;
-      }
 
       this.setData({
-        status: `正在识别 ${size.width} × ${size.height} 照片`,
+        status: `正在识别 ${input.width} × ${input.height} 照片`,
         hint: '请稍候',
         phase: 'capturing'
       });
-      const detections = await this.detectFromPhoto(decoded ? decoded.data : photoBytes, size);
+      const detections = await this.detectFromPhoto(input);
       const detectedItems = Array.isArray(detections) ? detections : [];
       detectedItems.forEach((item, index) => {
         const rawValue = item && typeof item.rawValue === 'string' ? item.rawValue : '';
@@ -295,11 +289,8 @@ export default {
         return;
       }
 
-      if (detectedItems.length > 0) {
-        this.showScanError('二维码内容不是一刻绑定链接');
-      } else {
-        this.showScanError('未识别到二维码，请靠近后重试');
-      }
+      if (detectedItems.length > 0) this.showScanError('二维码内容不是一刻绑定链接');
+      else this.showScanError('未识别到二维码，请靠近后重试');
     } catch (error) {
       console.warn('[moment-one:binding-scan] capture or detection failed', {
         name: error && error.name,
@@ -308,18 +299,59 @@ export default {
       this.showScanError('扫码失败，请重新对准后重试');
     } finally {
       this.capturing = false;
+      // Some hosts briefly hide the page while the native camera preview is
+      // shown. onHide releases the context per the official sample; recreate
+      // it after the capture so the next retry is not left without a context.
+      if (this.pageActive && !this.binding && !this.camera) {
+        this.scannerState = 'initializing';
+        setTimeout(() => this.initializeScanner(), 0);
+      }
     }
   },
 
-  async detectFromPhoto(bytes, size) {
-    // Craft 与真机统一走 AIX 内置 QR 解码器，避免宿主 Canvas/Barcode
-    // 构造器注册差异导致扫码页在模块加载阶段失败。
-    const rawValue = decodeQrPixels(bytes, size.width, size.height);
-    console.info('[moment-one:binding-scan] local QR decoder', {
-      found: Boolean(rawValue),
-      pixelByteLength: bytes && bytes.byteLength ? bytes.byteLength : 0
+  async toBarcodeInput(photo) {
+    const mimeType = String(photo && photo.mimeType || '').toLowerCase();
+    if (mimeType.includes('webp')) {
+      const decoded = await decodeWebP(photo.data, { output: 'gray' });
+      return {
+        data: decoded.gray,
+        width: decoded.width,
+        height: decoded.height,
+        pixelFormat: 'gray-webp'
+      };
+    }
+
+    const decoded = decodeCameraImage(photo.data, mimeType);
+    if (!decoded || !decoded.data) {
+      throw new Error(`Unsupported or unreadable camera image: ${mimeType || 'unknown'}`);
+    }
+    return {
+      data: decoded.data,
+      width: decoded.width,
+      height: decoded.height,
+      pixelFormat: 'rgba'
+    };
+  },
+
+  async detectFromPhoto(input) {
+    // 真机 WebP 灰度输入按官方 scanner sample 直接交给 BarcodeDetector。
+    // Craft PNG/JPEG 的 RGBA 输入若宿主未识别，再使用 AIX 内置 jsQR。
+    const hostResults = await this.detector.detect({
+      data: input.data,
+      width: input.width,
+      height: input.height
     });
-    return rawValue ? [{ format: 'qr_code', rawValue }] : [];
+    if (Array.isArray(hostResults) && hostResults.length > 0) return hostResults;
+
+    if (input.pixelFormat === 'rgba') {
+      const rawValue = decodeQrPixels(input.data, input.width, input.height);
+      console.info('[moment-one:binding-scan] local QR decoder fallback', {
+        found: Boolean(rawValue),
+        pixelByteLength: input.data.byteLength
+      });
+      return rawValue ? [{ format: 'qr_code', rawValue }] : [];
+    }
+    return [];
   },
 
   showScanError(message) {
@@ -414,7 +446,7 @@ export default {
         phase: 'success'
       });
       setTimeout(() => {
-        if (this.pageActive) wx.redirectTo({ url: '/pages/index/index' });
+        if (this.pageActive) wx.redirectTo({ url: '/pages/index/index?fromBinding=true' });
       }, 500);
       return;
     }
@@ -454,12 +486,12 @@ export default {
         <text class="scan-mode">{{modeLabel}}</text>
       </view>
       <view class="scan-body">
-        <view class="scan-frame">
+        <view class="camera-wrap">
+          <camera class="scan-camera"></camera>
           <view class="scan-corner corner-top-left"></view>
           <view class="scan-corner corner-top-right"></view>
           <view class="scan-corner corner-bottom-left"></view>
           <view class="scan-corner corner-bottom-right"></view>
-          <text class="scan-symbol">QR</text>
         </view>
         <view class="scan-copy">
           <text class="scan-status">{{status}}</text>
@@ -533,9 +565,9 @@ export default {
   gap: var(--spacing-lg);
 }
 
-.scan-frame {
-  width: 120px;
-  height: 120px;
+.camera-wrap {
+  width: 176px;
+  height: 132px;
   position: relative;
   display: flex;
   align-items: center;
@@ -544,13 +576,13 @@ export default {
   border-style: solid;
   border-color: var(--border-color-muted);
   border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
-.scan-symbol {
-  color: var(--color-primary-60);
-  font-size: 24px;
-  line-height: 30px;
-  font-weight: 700;
+.scan-camera {
+  width: 176px;
+  height: 132px;
+  background-color: #000000;
 }
 
 .scan-corner {

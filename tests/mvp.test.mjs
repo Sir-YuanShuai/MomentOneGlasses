@@ -17,6 +17,7 @@ import {
   resolveTokenError
 } from '../services/binding-core.js';
 import { decodeCameraImage } from '../services/image-decode.js';
+import { decodeWebP } from '../services/webp.js';
 import { decodeQrPixels } from '../services/qr-fallback.js';
 import { createDeviceId } from '../services/device-id.js';
 
@@ -195,20 +196,20 @@ function testIndexEntryRouting() {
 
 function testScanPage() {
   const source = fs.readFileSync('pages/scan/scan.ink', 'utf8');
-  assert.doesNotMatch(source, /from ['\"](?:barcode|canvas)['\"]/, 'scan page must avoid host barcode/canvas constructor loading');
-  assert.match(source, /decodeQrPixels/, 'scan page must use the bundled local QR decoder');
+  assert.doesNotMatch(source, /from ['"]canvas['"]/, 'scan page must avoid unsupported canvas constructor loading');
+  assert.match(source, /from ['"]barcode['"]/, 'scan page must use the official BarcodeDetector module');
+  assert.match(source, /<camera class=/, 'scan page must render the official camera preview component');
+  assert.match(source, /wx\.media\.createCameraContext/, 'scan page must connect CameraContext to the camera component');
+  assert.match(source, /decodeWebP/, 'scan page must decode real-device WebP captures');
+  assert.match(source, /decodeQrPixels/, 'scan page must retain the Craft RGBA QR fallback');
   assert.match(source, /onReady/, 'scan page must initialize camera after page readiness');
+  assert.match(source, /onShow/, 'scan page must recreate camera context when shown');
   assert.match(source, /findBindingCode/, 'scan page must parse QR detections');
-  assert.match(source, /parseImageSize/, 'scan page must provide image dimensions to BarcodeDetector');
   assert.match(source, /requestBinding/, 'scan page must call requestBinding');
   assert.match(source, /QR content/, 'scan page must print detected QR content before validation');
   assert.match(source, /pages\/index\/index/, 'scan page must redirect to index after binding');
-  // 语音绑定模式（设备不支持扫码时的替代方案）
   assert.match(source, /SpeechRecognition/, 'scan page must support voice binding fallback');
-  // 本地模式跳过（连按 2 次返回键）
   assert.match(source, /localMode/, 'scan page must support local mode skip');
-  // 返回键回到唯一入口 index 的绑定门
-  assert.match(source, /pages\/index\/index/, 'scan page back must return to index binding gate');
 }
 
 function testBindingService() {
@@ -231,6 +232,7 @@ function testBindingService() {
   assert.match(bindingSource, /clearBinding/, 'binding must export clearBinding');
   assert.match(bindingSource, /wx\.request/, 'binding must use wx.request for network calls');
   assert.match(bindingSource, /refreshTokenExpiresAt/, 'binding must preserve the hard refresh deadline');
+  assert.match(bindingSource, /token bundle persisted/, 'binding must read back the persisted token bundle');
   assert.doesNotMatch(bindingSource, /verifyTokenWithServer/, 'binding must not probe the Web management endpoint as validation');
 }
 
@@ -269,6 +271,19 @@ function testBindingParsing() {
   assert.equal(decodeQrPixels(decoded.data, decoded.width, decoded.height), 'momentone://bind?code=MockBindingCode_1234567');
 }
 
+async function testWebPDecoder() {
+  const fixture = fs.readFileSync('dev/fixtures/mock-binding-qr.webp');
+  const decoded = await decodeWebP(fixture, { output: 'rgba' });
+  assert.equal(decoded.width, 320);
+  assert.equal(decoded.height, 320);
+  assert.equal(decoded.rgba.byteLength, 320 * 320 * 4);
+  assert.equal(
+    decodeQrPixels(decoded.rgba, decoded.width, decoded.height),
+    'momentone://bind?code=MockBindingCode_1234567',
+    'official WebP decoder output must remain readable by the bundled QR fallback'
+  );
+}
+
 function testIndexPage() {
   const source = fs.readFileSync('pages/index/index.ink', 'utf8');
   assert.match(source, /SpeechRecognition/, 'index page must use SpeechRecognition');
@@ -278,6 +293,7 @@ function testIndexPage() {
   assert.match(source, /getValidAccessToken/, 'index page must validate binding token');
   // 未绑定时由 index 自己显示绑定门，不再经过 welcome
   assert.match(source, /bindingGate/, 'index must show binding gate when unbound');
+  assert.match(source, /suppressAutomaticEntry/, 'index must not auto-capture immediately after binding');
   assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not reference removed welcome page');
   // 支持本地模式跳过绑定
   assert.match(source, /localMode/, 'index page must support localMode parameter');
@@ -359,6 +375,7 @@ testScanPage();
 testBindingService();
 testDeviceId();
 testBindingParsing();
+await testWebPDecoder();
 testIndexPage();
 testConversationServices();
 testBuildInfo();

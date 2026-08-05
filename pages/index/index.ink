@@ -121,6 +121,7 @@ export default {
     // index 是唯一应用入口。未绑定时停留在 index 的绑定门，不再经过 welcome。
     const isLocalMode = input && (input.localMode === true || input.localMode === 'true');
     this.localMode = Boolean(isLocalMode);
+    this.suppressAutomaticEntry = Boolean(input && (input.fromBinding === true || input.fromBinding === 'true'));
     this.bindingReady = this.localMode;
     this.bindingCheckPending = !this.localMode;
     this.setData({
@@ -181,6 +182,16 @@ export default {
     if (this.pendingInitialAction === 'search') {
       this.pendingInitialAction = '';
       this.beginIntentListening('请直接问我过去发生的事');
+      return;
+    }
+    if (this.suppressAutomaticEntry) {
+      this.setData({
+        phase: 'idle',
+        statusTitle: '设备绑定成功',
+        statusDetail: '按确认键开始记录，或直接说出你的意图',
+        photoStatus: '待命',
+        sttLabel: '待命'
+      });
       return;
     }
     if (this.data.phase === 'listening' && this.listeningRequested && !this.recognitionActive) {
@@ -1355,6 +1366,7 @@ export default {
   },
 
   onVoiceWakeup(event) {
+    this.suppressAutomaticEntry = false;
     if (this.data.bindingGate) {
       this.openScanPage();
       return;
@@ -1432,6 +1444,7 @@ export default {
 
     event.preventDefault();
     if (control === CONTROL.ACTIVATE) {
+      this.suppressAutomaticEntry = false;
       if (!this.isBusy()) {
         if (this.resumePendingActionListening()) {
           return;
