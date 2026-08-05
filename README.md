@@ -2,14 +2,14 @@
 
 **AI 替你记住人生。**
 
-Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已实现设备扫码绑定（OAuth 2.1 QR Binding grant）。跨平台 Memory Platform、Cloud Sync、MCP Server、Mobile/Web 和 MCP Apps 仅保留架构设计，当前版本不实现云端同步或远程 MCP。
+Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接入设备扫码绑定代码路径（OAuth 2.1 QR Binding grant，仍需官方模拟器与真机验收）。跨平台 Memory Platform、Cloud Sync、MCP Server、Mobile/Web 和 MCP Apps 仅保留架构设计，当前版本不实现云端同步或远程 MCP。
 
 ## 当前 MVP
 
 - 设备扫码绑定：眼镜端扫描 Web 端二维码，通过 OAuth 2.1 QR Binding grant 向 Server 换取 JWT access_token + refresh_token，本地持久化。
-- Token 自动刷新：access_token 过期前自动用 refresh_token 刷新（90 天滚动续期），刷新失败则清除本地绑定并要求重新扫码。
+- Token 自动刷新：access_token 过期前自动用 refresh_token 刷新；refresh_token 最长 30 天且不滚动，过期、撤销或刷新失败后清除本地绑定并要求重新扫码。
 - 绑定状态分流：welcome 页根据本地绑定状态（bound / unbound / expired）自动分流到主页或扫码页。
-- 页面导航框架：welcome → scan → index 三页导航已就绪，对话功能待实现。
+- 页面导航与本地对话能力：welcome → scan → index 分流已接入，index 保留本地 Moment 记录、查询、修改和删除能力。
 
 ## 页面
 
@@ -17,7 +17,7 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已实�
 |---|---|
 | `pages/welcome/welcome` | 欢迎页（入口），点击/唤醒后根据绑定状态分流 |
 | `pages/scan/scan` | 扫码绑定页，自动打开相机扫码并换取 token |
-| `pages/index/index` | 主页（对话页面框架，对话功能待实现），进入时校验 token |
+| `pages/index/index` | 主页（本地 Moment 对话与工具执行），进入时校验 token |
 
 ## 项目结构
 
@@ -55,7 +55,7 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已实�
 
 ## 设备绑定流程
 
-1. **Web 端**登录后创建绑定会话，生成二维码（`momentone://bind?code=BIND-xxxx`）
+1. **Web 端**登录后创建绑定会话，生成二维码（`momentone://bind?code=<22 字符 URL-safe binding_code>`）
 2. **眼镜端** welcome 页点击进入 → 未绑定时跳转 scan 页
 3. **scan 页**打开相机扫码 → `parseQrPayload()` 提取 binding_code → `requestBinding(code)` 调 POST /oauth/token 换 token
 4. 绑定成功 → 跳转 index 页，本地存储 access_token / refresh_token / expires_at
@@ -100,10 +100,10 @@ npm run verify:mvp
 npm run pack:aix
 ```
 
-默认产物为 `dist/moment-one-<version>.aix`，包内会生成与 `package.json` 一致的 `VERSION` 文件。打包完成后必须执行：
+默认产物为 `dist/moment-one-<version>.aix`，包内会生成唯一 UUID 格式的 `VERSION` 文件，用于避免设备缓存旧页面。打包完成后必须执行：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.2.0.aix
+npm run check:aix-size -- dist/moment-one-0.3.0.aix
 ```
 
 也可以传入包含 AIX 包的目录；任意文件超限都会返回非零退出码并阻止发布：
@@ -136,4 +136,4 @@ npm run check:aix-size -- dist
 - [跨平台实施路线图](./docs/roadmap/PLATFORM_ROADMAP.md)
 - [AIX 本地打包与体积校验](./docs/delivery/AIX_PACKAGING.md)
 
-当前应用为页面导航 + 设备绑定流程，对话功能待实现。
+当前应用包含页面导航、待真机验收的设备绑定流程，以及设备内本地 Moment 对话能力。

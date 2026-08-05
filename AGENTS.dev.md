@@ -49,7 +49,7 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 
 ## MVP 边界
 
-当前 MVP 已实现**设备扫码绑定**（通过 OAuth 2.1 QR Binding grant 换取 JWT），以下能力**不进入 AIX Runtime**，只在 `docs/` 维护设计：
+当前 MVP 已接入**设备扫码绑定代码路径**（通过 OAuth 2.1 QR Binding grant 换取 JWT），但只有完成官方模拟器和 Rokid 真机验收后才能标记为已验证，以下能力**不进入 AIX Runtime**，只在 `docs/` 维护设计：
 
 - Cloud Sync（云端同步）
 - 远程 MCP（MCP Server 调用）
@@ -57,7 +57,7 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 
 修改代码时，不要为这些能力添加运行时实现。相关设计文档可更新，但不要在 `services/` 或 `pages/` 中引入对应逻辑。
 
-> **设备绑定**是 MVP 已实现能力：眼镜端扫码 → POST /oauth/token (grant_type=urn:momentone:oauth:grant-type:qr-binding) → 获取 access_token + refresh_token → 本地持久化 → 后续业务请求带 Bearer token。
+> **设备绑定**是 MVP 已接入、待真机验收的能力：眼镜端扫码 → POST /oauth/token (grant_type=urn:momentone:oauth:grant-type:qr-binding) → 获取 access_token + refresh_token → 本地持久化 → 后续业务请求带 Bearer token。
 
 ## 代码结构约定
 
@@ -75,7 +75,7 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 ```
 pages/welcome/welcome.ink   # 欢迎页（入口），点击/唤醒后根据绑定状态分流
 pages/scan/scan.ink         # 扫码绑定页，自动打开相机扫码 → 调 requestBinding 换 token
-pages/index/index.ink       # 主页（对话页面框架，对话功能待实现），进入时校验 token
+pages/index/index.ink       # 主页（本地 Moment 对话与工具执行），进入时校验 token
 ```
 
 ## 设备绑定流程
@@ -97,8 +97,8 @@ pages/index/index.ink       # 主页（对话页面框架，对话功能待实�
 |---|---|
 | `deviceId` | 设备 UUID v4，首次生成持久化 |
 | `bindingId` | 绑定关系 UUID |
-| `accessToken` | JWT access_token（1h 过期） |
-| `refreshToken` | JWT refresh_token（90d 滚动续期） |
+| `accessToken` | JWT access_token（有效期以 Server 返回的 `expires_in` 为准） |
+| `refreshToken` | JWT refresh_token（30 天硬上限，不滚动；过期后重新扫码） |
 | `accessTokenExpiresAt` | access_token 过期时间戳（秒） |
 
 ## 禁止事项

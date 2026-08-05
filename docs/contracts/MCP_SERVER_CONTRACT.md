@@ -28,10 +28,10 @@ https://api.example.com/mcp
 | 客户端 | 授权方式 | 说明 |
 |---|---|---|
 | ChatGPT / Claude 等 MCP Client | OAuth User Context | 用户在 MCP Client 中授权 |
-| 眼镜端 | 扫码设备绑定（QR Binding） | 建立 DeviceBinding 后获得 Access Token，详见 `docs/roadmap/MCP_MVP_PLAN.md` §2.5 |
+| 眼镜端 | 扫码设备绑定（QR Binding） | 建立 DeviceBinding 后获得 Access Token，详见 `MomentOneServer/docs/domain/DEVICE_BINDING.md` |
 | Web / Mobile | OAuth Authorization Code + PKCE | 浏览器跳转 Casdoor 登录 |
 
-眼镜端通过扫码绑定建立 **DeviceBinding**（设备与用户的长期绑定关系），绑定后获得 Access Token（1h）+ Refresh Token（30d）+ Device Token（90d）。MCP Server 验证 Access Token 后即可识别用户身份，无需感知绑定细节。
+眼镜端通过扫码绑定建立 **DeviceBinding**（设备与用户的长期绑定关系），绑定后获得短期 Access Token（有效期以 `expires_in` 为准）+ Refresh Token（30 天硬上限、不滚动）。MCP Server 验证 Access Token 后即可识别用户身份，无需感知绑定细节。
 
 ## 3. Tools
 

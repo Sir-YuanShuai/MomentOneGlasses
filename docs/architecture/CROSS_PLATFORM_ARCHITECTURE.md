@@ -135,9 +135,9 @@ App API 和 MCP Server 只能调用这些领域服务，不能各自实现一套
 | 外部 Agent | OAuth User Context | 用户在 MCP Client 中授权 |
 | 后台服务 | Client Credentials | 服务间机器授权 |
 
-眼镜端授权的核心概念是 **DeviceBinding** 而非"获取 Token"——扫码建立的是眼镜与用户账号之间的长期绑定关系，Token 只是绑定的产物。Token 生命周期：Access Token（1h）→ Refresh Token（30d）→ Device Token（90d），只有 Device Token 过期或绑定撤销时才需要重新扫码。
+眼镜端授权的核心概念是 **DeviceBinding** 而非"获取 Token"——扫码建立的是眼镜与用户账号之间的长期绑定关系，Token 只是绑定的产物。Token 生命周期：Access Token（短期，有效期以 Server 返回的 `expires_in` 为准）→ Refresh Token（30 天硬上限、不滚动）；Refresh Token 过期或绑定撤销后必须重新扫码。
 
-详见 `docs/roadmap/MCP_MVP_PLAN.md` §2.5 和 `docs/security/IDENTITY_SYNC_SECURITY.md`。
+权威绑定契约见 `MomentOneServer/docs/domain/DEVICE_BINDING.md`；身份边界补充见 `docs/security/IDENTITY_SYNC_SECURITY.md`。
 
 ### 4.3 Moment MCP Server
 

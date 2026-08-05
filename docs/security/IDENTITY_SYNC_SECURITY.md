@@ -43,7 +43,7 @@ Moment One 支持三种 OAuth 授权流程（根据客户端能力选择）：
 - **扫码设备绑定**（眼镜端）：Web 端显示二维码，眼镜用摄像头扫描建立 DeviceBinding（自定义 Extension Grant）
 - **机器间授权**（后台服务 / CI/CD）：Client Credentials（SEP-1046）
 
-详细授权设计见根目录 `docs/roadmap/MCP_MVP_PLAN.md`。
+设备绑定的权威授权契约见 `MomentOneServer/docs/domain/DEVICE_BINDING.md`。
 
 ## 3. Scope
 
@@ -188,7 +188,7 @@ Client -> Create/Update Moment with assetId
 - AIX 不包含长期 API Key；
 - MCP Apps 不包含 OAuth Refresh Token；
 - 移动端使用系统安全存储；
-- 眼镜端通过扫码设备绑定建立 DeviceBinding（Web 端显示二维码，眼镜摄像头扫描）；绑定后获得 Access Token（1h）+ Refresh Token（30d）+ Device Token（90d），Token 过期可刷新，无需重新扫码；绑定可由 Web 端撤销；
+- 眼镜端通过扫码设备绑定建立 DeviceBinding（Web 端显示二维码，眼镜摄像头扫描）；绑定后获得短期 Access Token（有效期以 Server 返回的 `expires_in` 为准）+ Refresh Token（30 天硬上限、不滚动）；Access Token 可在 Refresh Token 有效期内刷新，Refresh Token 过期或绑定撤销后需重新扫码；
 - MCP Client（第三方 Agent）使用 OAuth 2.1 + PKCE；Token 由 Host 管理，不长期存储明文；
 - 后台服务 / CI/CD 使用 Client Credentials Grant（SEP-1046）；推荐 JWT Bearer Assertion；
 - 服务端密钥只存在服务端 Secret Manager；

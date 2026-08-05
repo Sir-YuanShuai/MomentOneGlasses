@@ -5,7 +5,7 @@
 
 ## 1. MVP 目标
 
-当前阶段只完成 Rokid AIUI 设备内可运行、可离线降级的个人 Moment MVP，不建设 Cloud PostgreSQL、对象存储、远程 MCP Server、跨设备同步或原生 MCP Apps。
+当前阶段完成 Rokid AIUI 设备内可运行、可离线降级的个人 Moment MVP。Moment 数据仍只保存在设备本地；唯一已接入的远端路径是设备扫码绑定所需的 Server OAuth 端点，不建设 Cloud PostgreSQL、对象存储、远程 MCP Server、跨设备同步或原生 MCP Apps。
 
 核心目标：
 
@@ -122,7 +122,19 @@ pages/cards/memory-answer
 
 卡片不包含按钮或 `bindtap`，后续操作通过下一轮语音完成。
 
-### 2.6 调试
+### 2.6 设备绑定（鉴权边界）
+
+AIX 已接入 welcome → scan → index 的设备绑定代码路径：
+
+- Web 生成 `momentone://bind?code=<binding_code>` 二维码；
+- 眼镜扫码后只调用 MomentOneServer `/oauth/token`，不接触 Casdoor 凭据；
+- Server 使用 RS256 签发 access token 与 refresh token；
+- refresh token 最长 30 天且不滚动，过期或撤销后必须重新扫码；
+- 该远端路径只建立身份绑定，不改变 Moment 数据仍为本地存储的 MVP 边界。
+
+当前状态是“代码已接入、官方模拟器与真机待验收”，不得在验收前写成真机已完成。
+
+### 2.7 调试
 
 Flight Recorder 支持：
 
@@ -147,7 +159,7 @@ Moment MCP Server
 外部 MCP Client
 MCP Gateway
 原生 MCP Apps UI Resource
-OAuth / Agent Scope
+第三方 OAuth / Agent Scope
 云端 Agent 审计
 向量数据库或 pgvector
 ```

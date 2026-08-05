@@ -16,10 +16,10 @@ npm run pack:aix
 dist/moment-one-<package.json version>.aix
 ```
 
-例如当前版本 `0.1.0` 的默认产物为：
+例如当前版本 `0.3.0` 的默认产物为：
 
 ```text
-dist/moment-one-0.1.0.aix
+dist/moment-one-0.3.0.aix
 ```
 
 `dist/` 已被 `.gitignore` 忽略，打包产物默认不会提交到 Git。
@@ -100,11 +100,13 @@ npm run pack:aix -- build/MomentOne-preview.aix
 VERSION
 ```
 
-其内容与 `package.json#version` 完全一致。例如：
+其内容是每次打包重新生成的唯一 UUID，例如：
 
 ```text
-0.1.0
+8dd9a8ff-50c9-4fca-a4e5-6a0fcf921af7
 ```
+
+`package.json#version` 只用于 AIX 文件名和产品版本；`VERSION` 用于设备缓存校验，禁止改为固定语义版本号。
 
 源代码目录中不需要手工维护 `VERSION` 文件。
 
@@ -141,7 +143,7 @@ VERSION
 发布前仍必须独立执行一次体积校验：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.1.0.aix
+npm run check:aix-size -- dist/moment-one-0.3.0.aix
 ```
 
 也可以检查目录中的全部 `.aix` 文件：
@@ -167,29 +169,29 @@ npm run pack:aix
 npm run check:aix-size -- dist
 
 # 4. 查看包内文件
-unzip -l dist/moment-one-0.1.0.aix
+unzip -l dist/moment-one-0.3.0.aix
 
 # 5. 检查包内版本
-unzip -p dist/moment-one-0.1.0.aix VERSION
+unzip -p dist/moment-one-0.3.0.aix VERSION
 ```
 
-如果版本不是 `0.1.0`，请把示例路径替换成实际的 `package.json#version`。
+如果包名版本不是 `0.3.0`，请把示例路径替换成实际的 `package.json#version`；`VERSION` 文件内容仍应是 UUID。
 
 ## 7. 当前验证结果
 
-2026 年 7 月 30 日，本地执行结果为：
+以下结果必须以最近一次本地执行输出为准；历史示例不作为发布证明：
 
 | 项目 | 结果 |
 |---|---|
 | `npm run check` | 通过 |
 | AIX 生成 | 通过 |
-| 产物 | `dist/moment-one-0.1.0.aix` |
+| 产物 | `dist/moment-one-0.3.0.aix` |
 | 文件大小 | 以 `npm run pack:aix` 的最新输出为准，必须低于或等于 10 MB |
 | 10 MB 校验 | 通过 |
-| 包内版本 | `0.1.0` |
+| 包内 `VERSION` | 每次打包生成的唯一 UUID |
 | AIX Reader 解析 | 通过 |
 | Reader 识别标题 | `一刻 · Moment One` |
-| Reader 识别注册页面 | `pages/index/index` |
+| Reader 识别注册页面 | 以 `app.json#pages` 为准，当前入口为 `pages/welcome/welcome` |
 
 该大小仅代表当时的项目内容。页面、服务、提示词或静态资源变化后，应以最新打包结果为准。
 
@@ -257,7 +259,7 @@ Moment One 处理私人生活记忆。打包前必须确认：
 可以使用以下命令人工审查包内清单：
 
 ```bash
-unzip -l dist/moment-one-0.1.0.aix
+unzip -l dist/moment-one-0.3.0.aix
 ```
 
 ## 10. 本地打包与正式发布的边界
@@ -288,6 +290,6 @@ unzip -l dist/moment-one-0.1.0.aix
 - [ ] `npm run pack:aix` 通过；
 - [ ] `npm run check:aix-size -- dist` 通过；
 - [ ] `unzip -l` 中没有密钥、用户数据或开发文件；
-- [ ] 包内 `VERSION` 与 `package.json#version` 一致；
+- [ ] 包内 `VERSION` 是本次打包新生成的唯一 UUID，且与上一次产物不同；
 - [ ] 已完成 AIX Reader 解析验证；
 - [ ] 已在官方发布平台和真机环境完成最终验收。
