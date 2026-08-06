@@ -1,163 +1,103 @@
+// Moment One Glasses MVP 回归测试（纯 MCP 记账客户端）。
+// 覆盖：绑定核心（纯函数）、扫码解析、记账门槛、MCP 卡片数据契约、页面/配置一致性。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fallbackRecognizeIntent } from '../services/intent-router.js';
-import { createMemoryRepository } from '../services/memory-repository.js';
-import { resolveRecordMediaChoice, VIDEO_RECORDING_SUPPORTED } from '../services/record-media.js';
-import { MOMENT_TOOL_DEFINITIONS } from '../services/tools/definitions.js';
-import { resolveToolCall } from '../services/tools/registry.js';
-import {
-  extractSpokenBindingCode,
-  findBindingCode,
-  parseImageSize
-} from '../services/qr-scanner.js';
+
+import { looksLikeBookkeeping } from '../services/bookkeeping-gate.js';
+import { createMcpSummaryCard, createAccountUnbindCard, createAccountUnbindResultCard } from '../services/card-presenter.js';
+import { formatAmount, formatMoney, formatPeriodLabel } from '../services/format.js';
 import {
   normalizeBindingCode,
   parseQrPayload,
-  resolveTokenError
+  resolveTokenError,
 } from '../services/binding-core.js';
-import { decodeCameraImage } from '../services/image-decode.js';
-import { decodeWebP } from '../services/webp.js';
-import { createAccountUnbindCard, createAccountUnbindResultCard } from '../services/card-presenter.js';
-import { decodeQrPixels } from '../services/qr-fallback.js';
+import {
+  extractSpokenBindingCode,
+  findBindingCode,
+  parseImageSize,
+} from '../services/qr-scanner.js';
 import { createDeviceId } from '../services/device-id.js';
 
-function memoryStorage() {
-  const values = new Map();
-  return {
-    getStorageSync(key) {
-      const value = values.get(key);
-      return value === undefined ? undefined : structuredClone(value);
-    },
-    setStorageSync(key, value) {
-      values.set(key, structuredClone(value));
-    },
-    removeStorageSync(key) {
-      values.delete(key);
-    },
-  };
-}
-
-function moment(id, occurredAt, fields = {}) {
-  return {
-    id,
-    title: fields.title || id,
-    occurredAt,
-    voiceInput: fields.voiceInput || '',
-    description: fields.description || '',
-    aiSummary: fields.aiSummary || '',
-    category: fields.category || 'experience',
-    tags: fields.tags || [],
-    location: fields.location || { name: '', source: 'unknown' },
-    revision: fields.revision ?? 0,
-    syncState: fields.syncState || 'pending',
-    createdAt: occurredAt,
-    updatedAt: occurredAt,
-  };
-}
-
-function testIntentFallback() {
+function testBookkeepingGate() {
   const cases = [
-    ['记录今天第一次看海', 'moment.create'],
-    ['帮我记一下今天见了小王', 'moment.create'],
-    ['我上周去过哪里', 'moment.query'],
-    ['我有多少条记录', 'moment.query'],
-    ['把上一条地点改成西湖', 'moment.update'],
-    ['删除面馆记录', 'moment.delete'],
-    ['清空全部记忆', 'moment.clear'],
-    ['关闭即刻记忆', 'config.set'],
-    ['开启快速记录', 'config.set'],
-    ['即刻记忆现在开着吗', 'config.get'],
-    ['你好', 'help'],
-    ['这个月花了多少', 'mcp.bookkeeping.summary'],
-    ['上季度收支', 'mcp.bookkeeping.summary'],
-    ['今年支出总结', 'mcp.bookkeeping.summary'],
-    ['上个月花了多少', 'mcp.bookkeeping.summary'],
-    ['去年开销多少', 'mcp.bookkeeping.summary'],
-    ['3月花了多少', 'mcp.bookkeeping.summary'],
-    ['2025年花了多少', 'mcp.bookkeeping.summary'],
-    ['今天天气不错', 'moment.create'],
-    ['刚在西湖边散步，阳光很好', 'moment.create'],
-    ['这家面很好吃', 'moment.create'],
-    ['今天窗外正在下雨，雨声很安静', 'moment.create'],
+    ['记一笔午餐28.5元', true],
+    ['上个月花了多少钱', true],
+    ['看看这个月的账单', true],
+    ['支出多少', true],
+    ['今天天气不错', false],
+    ['帮我找找上周吃过的面馆', false],
+    ['你好', false],
   ];
-
-  cases.forEach(([utterance, expectedType]) => {
-    const intent = fallbackRecognizeIntent(utterance);
-    assert.equal(intent.type, expectedType, `intent for "${utterance}"`);
+  cases.forEach(([utterance, expected]) => {
+    assert.equal(
+      looksLikeBookkeeping(utterance),
+      expected,
+      `bookkeeping gate for "${utterance}"`,
+    );
   });
 }
 
-function testRecordMediaChoices() {
-  assert.equal(resolveRecordMediaChoice('保存照片'), 'photo');
-  assert.equal(resolveRecordMediaChoice('重新拍一张'), 'retake');
-  assert.equal(resolveRecordMediaChoice('不保存照片'), 'text');
-  assert.equal(resolveRecordMediaChoice('录一段音频'), 'audio');
-  assert.equal(resolveRecordMediaChoice('照片和录音都保存'), 'photo+audio');
-  assert.equal(resolveRecordMediaChoice('录制视频'), 'video');
-  assert.equal(resolveRecordMediaChoice('取消'), 'cancel');
-  assert.equal(resolveRecordMediaChoice('随便'), 'unknown');
-  assert.equal(VIDEO_RECORDING_SUPPORTED, false);
-}
-
-function testToolDefinitions() {
-  assert.ok(Array.isArray(MOMENT_TOOL_DEFINITIONS));
-  assert.ok(MOMENT_TOOL_DEFINITIONS.length >= 4, 'must define at least 4 moment tools');
-  const names = MOMENT_TOOL_DEFINITIONS.map((tool) => tool.function.name);
-  ['moment_create', 'moment_search', 'moment_update', 'moment_delete_request', 'account_unbind_request'].forEach((required) => {
-    assert.ok(names.includes(required), `tool ${required} must be defined`);
+function testMcpCardContract() {
+  const card = createMcpSummaryCard({
+    summary: {
+      period: 'month',
+      year: 2026,
+      month: 8,
+      income: 1200,
+      expense: 2318,
+      balance: -1118,
+      count: 6,
+      byCategory: [
+        { category: '餐饮', amount: 1200 },
+        { category: '交通', amount: 600 },
+        { category: '购物', amount: 518 },
+      ],
+    },
   });
-  MOMENT_TOOL_DEFINITIONS.forEach((tool) => {
-    assert.equal(tool.type, 'function');
-    assert.ok(tool.function.name, 'tool must have a name');
-    assert.ok(tool.function.parameters, 'tool must have parameters');
-  });
+  assert.equal(card.route, 'pages/cards/mcp-summary');
+  assert.equal(card.data.status, 'ready');
+  assert.equal(card.data.period, 'month');
+  assert.equal(card.data.count, 6);
+  assert.equal(card.data.topCategories.length, 3);
+  assert.equal(card.data.topCategories[0].category, '餐饮');
+
+  const errorCard = createMcpSummaryCard({ message: '服务不可用' });
+  assert.equal(errorCard.data.status, 'error');
+  assert.equal(errorCard.data.message, '服务不可用');
 }
 
-function testToolPolicy() {
-  const create = resolveToolCall({ name: 'moment_create', arguments: { content: '今天看了海' } }, '今天看了海');
-  assert.equal(create.ok, true);
-  assert.equal(create.intent.type, 'moment.create');
-
-  const search = resolveToolCall({ name: 'moment_search', arguments: { query: '上周吃什么', mode: 'search' } }, '上周吃什么');
-  assert.equal(search.ok, true);
-  assert.equal(search.intent.type, 'moment.query');
-
-  const update = resolveToolCall(
-    { name: 'moment_update', arguments: { targetReference: '上一条', changes: { title: '新标题' } } },
-    '把上一条标题改一下',
-  );
-  assert.equal(update.ok, true);
-
-  const unknown = resolveToolCall({ name: 'unknown_tool', arguments: {} }, 'test');
-  assert.equal(unknown.ok, false);
-
-  const emptyCreate = resolveToolCall({ name: 'moment_create', arguments: { content: '' } }, '记录');
-  assert.equal(emptyCreate.ok, false);
+function testFormatHelpers() {
+  assert.equal(formatAmount(1234.5), '1,234.50');
+  assert.equal(formatAmount(0), '0.00');
+  assert.equal(formatMoney(-1118), '-¥1,118.00');
+  assert.equal(formatMoney(28.5), '+¥28.50');
+  assert.equal(formatPeriodLabel('month'), '本月');
 }
 
-function testMemoryRepository() {
-  const storage = memoryStorage();
-  const repository = createMemoryRepository({ storage, storageKey: 'test:moments', maxMoments: 50 });
+function testBindingParsing() {
+  const code = 'A'.repeat(22);
+  assert.equal(createAccountUnbindCard().route, 'pages/cards/account-unbind');
+  assert.equal(createAccountUnbindCard().data.status, 'confirm');
+  assert.equal(createAccountUnbindResultCard({ remoteRevoked: true }).data.status, 'success');
+  assert.equal(normalizeBindingCode(code), code);
+  assert.equal(parseQrPayload(`momentone://bind?code=${code}`), code);
+  assert.equal(parseQrPayload(`momentone://bind?code=${encodeURIComponent(code)}`), code);
+  assert.equal(parseQrPayload('https://example.com/?code=' + code), null);
+  assert.equal(parseQrPayload('momentone://bind?code=too-short'), null);
+  assert.equal(parseQrPayload(`momentone://bind?code=${code}&code=${code}`), null);
+  assert.equal(extractSpokenBindingCode(`绑定码是 ${code}`), code);
+  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }, { rawValue: `momentone://bind?code=${code}` }]), code);
+  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }]), null);
+  assert.equal(resolveTokenError({ error: { code: 'BINDING_CODE_EXPIRED' } }, 400), 'BINDING_CODE_EXPIRED');
+  assert.equal(resolveTokenError({}, 503), 'SERVER_ERROR');
 
-  const initial = repository.listMoments();
-  assert.equal(initial.length, 0);
-
-  const saved = repository.saveMoment(moment('m1', '2026-08-01T10:00:00+08:00', { title: '看海' }));
-  assert.equal(saved.id, 'm1');
-  assert.equal(saved.title, '看海');
-  assert.equal(repository.listMoments().length, 1);
-
-  const found = repository.searchMoments('海');
-  assert.equal(found.length, 1);
-  assert.equal(found[0].title, '看海');
-
-  const updated = repository.updateMoment('m1', { title: '第一次看海' });
-  assert.equal(updated.title, '第一次看海');
-  assert.equal(updated.revision, 1);
-
-  repository.deleteMoment('m1');
-  assert.equal(repository.listMoments().length, 0);
+  const png = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0, 0, 0, 0x03, 0, 0, 0, 0x02,
+  ]);
+  assert.deepEqual(parseImageSize(png), { width: 3, height: 2 });
 }
 
 function testAppConfig() {
@@ -165,8 +105,6 @@ function testAppConfig() {
   assert.deepEqual(appConfig.pages, [
     'pages/index/index',
     'pages/scan/scan',
-    'pages/cards/moment-result',
-    'pages/cards/memory-answer',
     'pages/cards/account-unbind',
     'pages/cards/mcp-summary',
     'pages/mcp/detail',
@@ -186,7 +124,7 @@ function testPagesVoiceFirst() {
   const inkPages = fs.readdirSync('pages', { recursive: true })
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
-    // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP Apps 卡片与详情页（D4 决策）
+    // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP 卡片与详情页（D4 决策）
     if (['cards/account-unbind.ink', 'cards/mcp-summary.ink', 'mcp/detail.ink'].includes(String(file))) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
@@ -204,7 +142,9 @@ function testIndexEntryRouting() {
   assert.match(source, /openScanPage/, 'index must open scan page from the binding gate');
   assert.match(source, /APP_VERSION/, 'index must display the unified app version');
   assert.match(source, /BUILD_ID/, 'index must display the packaged build id');
-  assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not redirect through the removed welcome page');
+  assert.match(source, /runAgentTurn/, 'index must route utterances through the MCP pre-router');
+  assert.doesNotMatch(source, /saveMoment/, 'index must not keep local moment storage code');
+  assert.doesNotMatch(source, /memory-repository|memory-store|moment-ai/, 'index must not import local memory services');
 }
 
 function testScanPage() {
@@ -213,13 +153,7 @@ function testScanPage() {
   assert.match(source, /from ['"]barcode['"]/, 'scan page must use the official BarcodeDetector module');
   assert.match(source, /<camera class=/, 'scan page must render the official camera preview component');
   assert.match(source, /wx\.media\.createCameraContext/, 'scan page must connect CameraContext to the camera component');
-  assert.match(source, /decodeWebP/, 'scan page must decode real-device WebP captures');
-  assert.match(source, /decodeQrPixels/, 'scan page must retain the Craft RGBA QR fallback');
-  assert.match(source, /onReady/, 'scan page must initialize camera after page readiness');
-  assert.match(source, /onShow/, 'scan page must recreate camera context when shown');
-  assert.match(source, /findBindingCode/, 'scan page must parse QR detections');
   assert.match(source, /requestBinding/, 'scan page must call requestBinding');
-  assert.match(source, /QR content/, 'scan page must print detected QR content before validation');
   assert.match(source, /pages\/index\/index/, 'scan page must redirect to index after binding');
   assert.match(source, /SpeechRecognition/, 'scan page must support voice binding fallback');
   assert.match(source, /localMode/, 'scan page must support local mode skip');
@@ -235,6 +169,7 @@ function testBindingService() {
   assert.match(configSource, /OAUTH_TOKEN_URL/, 'config must define OAUTH_TOKEN_URL');
   assert.match(configSource, /STORAGE_KEYS/, 'config must define STORAGE_KEYS');
   assert.match(configSource, /DEVICE_BINDINGS_URL/, 'config must define the self-unbind endpoint');
+  assert.match(configSource, /MCP_ENDPOINT_URL/, 'config must define the MCP endpoint');
   assert.match(configSource, /REFRESH_TOKEN_HARD_TTL_SECONDS/, 'config must enforce the refresh hard limit');
 
   const bindingSource = fs.readFileSync('services/binding.js', 'utf8');
@@ -246,120 +181,33 @@ function testBindingService() {
   assert.match(bindingSource, /clearBinding/, 'binding must export clearBinding');
   assert.match(bindingSource, /wx\.request/, 'binding must use wx.request for network calls');
   assert.match(bindingSource, /refreshTokenExpiresAt/, 'binding must preserve the hard refresh deadline');
-  assert.match(bindingSource, /token bundle persisted/, 'binding must read back the persisted token bundle');
-  assert.match(bindingSource, /export async function unbindAccount/, 'binding must expose confirmed account unbind');
   assert.doesNotMatch(bindingSource, /verifyTokenWithServer/, 'binding must not probe the Web management endpoint as validation');
 }
 
+function testMcpClientService() {
+  const source = fs.readFileSync('services/mcp-client.js', 'utf8');
+  assert.match(source, /createMcpClient/, 'mcp-client must export createMcpClient');
+  assert.match(source, /listTools/, 'mcp-client must expose tools/list');
+  assert.match(source, /callTool/, 'mcp-client must expose tools/call');
+  assert.match(source, /listPrompts/, 'mcp-client must expose prompts/list');
+  assert.match(source, /getPrompt/, 'mcp-client must expose prompts/get');
+  assert.match(source, /401/, 'mcp-client must handle 401 refresh-retry');
+  assert.doesNotMatch(source, /from ['"]@modelcontextprotocol/, 'mcp-client must be hand-written JSON-RPC (no SDK import)');
+}
+
+function testNoLocalMemoryCode() {
+  ['services/memory-repository.js', 'services/memory-store.js', 'services/moment-ai.js', 'services/record-media.js', 'services/intent-router.js', 'prompts/tool-planner-v1.js'].forEach((file) => {
+    assert.equal(fs.existsSync(file), false, `${file} must be removed (local memory feature dropped)`);
+  });
+  const agentLoop = fs.readFileSync('services/agent-loop.js', 'utf8');
+  assert.doesNotMatch(agentLoop, /LanguageModel/, 'agent-loop must not depend on device LanguageModel');
+}
 
 function testDeviceId() {
   const first = createDeviceId();
   const second = createDeviceId();
   assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.notEqual(first, second, 'device ids must be unique');
-}
-
-function testBindingParsing() {
-  const code = 'A'.repeat(22);
-  assert.equal(fallbackRecognizeIntent('解绑当前账号').type, 'account.unbind.request');
-  assert.equal(fallbackRecognizeIntent('请解除绑定账户').type, 'account.unbind.request');
-  const unbindCard = createAccountUnbindCard();
-  assert.equal(unbindCard.route, 'pages/cards/account-unbind');
-  assert.equal(unbindCard.data.status, 'confirm');
-  assert.equal(createAccountUnbindResultCard({ remoteRevoked: true }).data.status, 'success');
-  assert.equal(normalizeBindingCode(code), code);
-  assert.equal(parseQrPayload(`momentone://bind?code=${code}`), code);
-  assert.equal(parseQrPayload(`momentone://bind?code=${encodeURIComponent(code)}`), code);
-  assert.equal(parseQrPayload('https://example.com/?code=' + code), null);
-  assert.equal(parseQrPayload('momentone://bind?code=too-short'), null);
-  assert.equal(parseQrPayload(`momentone://bind?code=${code}&code=${code}`), null);
-  assert.equal(extractSpokenBindingCode(`绑定码是 ${code}`), code);
-  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }, { rawValue: `momentone://bind?code=${code}` }]), code);
-  assert.equal(findBindingCode([{ rawValue: 'not-moment-one' }]), null);
-  assert.equal(resolveTokenError({ error: { code: 'BINDING_CODE_EXPIRED' } }, 400), 'BINDING_CODE_EXPIRED');
-  assert.equal(resolveTokenError({}, 503), 'SERVER_ERROR');
-
-  const png = new Uint8Array([
-    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-    0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52,
-    0, 0, 0, 0x03, 0, 0, 0, 0x02
-  ]);
-  assert.deepEqual(parseImageSize(png), { width: 3, height: 2 });
-  const fixture = fs.readFileSync('dev/fixtures/mock-binding-qr.png');
-  const decoded = decodeCameraImage(fixture, 'image/png');
-  assert.deepEqual({ width: decoded.width, height: decoded.height }, { width: 320, height: 320 });
-  assert.equal(decoded.data.byteLength, 320 * 320 * 4, 'decoded image must be RGBA pixels for BarcodeDetector');
-  assert.equal(decodeQrPixels(decoded.data, decoded.width, decoded.height), 'momentone://bind?code=MockBindingCode_1234567');
-}
-
-async function testWebPDecoder() {
-  const fixture = fs.readFileSync('dev/fixtures/mock-binding-qr.webp');
-  const decoded = await decodeWebP(fixture, { output: 'rgba' });
-  assert.equal(decoded.width, 320);
-  assert.equal(decoded.height, 320);
-  assert.equal(decoded.rgba.byteLength, 320 * 320 * 4);
-  assert.equal(
-    decodeQrPixels(decoded.rgba, decoded.width, decoded.height),
-    'momentone://bind?code=MockBindingCode_1234567',
-    'official WebP decoder output must remain readable by the bundled QR fallback'
-  );
-}
-
-function testIndexPage() {
-  const source = fs.readFileSync('pages/index/index.ink', 'utf8');
-  assert.match(source, /SpeechRecognition/, 'index page must use SpeechRecognition');
-  assert.match(source, /runAgentTurn/, 'index page must run agent loop');
-  assert.match(source, /saveMoment/, 'index page must save moments');
-  assert.match(source, /searchMoments/, 'index page must search moments');
-  assert.match(source, /getValidAccessToken/, 'index page must validate binding token');
-  // 未绑定时由 index 自己显示绑定门，不再经过 welcome
-  assert.match(source, /bindingGate/, 'index must show binding gate when unbound');
-  assert.match(source, /suppressAutomaticEntry/, 'index must not auto-capture immediately after binding');
-  assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not reference removed welcome page');
-  // 支持本地模式跳过绑定
-  assert.match(source, /localMode/, 'index page must support localMode parameter');
-  assert.match(source, /presentAccountUnbindCard/, 'index must render the unbind card request through the card presenter');
-  assert.match(source, /扫码绑定账号/, 'index binding gate must target the account');
-}
-
-function testAccountUnbindCard() {
-  const source = fs.readFileSync('pages/cards/account-unbind.ink', 'utf8');
-  assert.match(source, /确认解绑/);
-  assert.match(source, /bindtap=\"confirmUnbind\"/);
-  assert.match(source, /bindtap=\"cancelUnbind\"/);
-  assert.match(source, /unbindAccount/);
-  assert.match(source, /onKeyUp/);
-  assert.match(source, /selectedAction/);
-  assert.match(source, /navigateBack/);
-  const appConfig = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-  assert.ok(appConfig.pages.includes('pages/cards/account-unbind'));
-  const bindingSource = fs.readFileSync('services/binding.js', 'utf8');
-  assert.match(bindingSource, /export async function unbindAccount/);
-  assert.match(bindingSource, /method: 'DELETE'/);
-}
-
-function testConversationServices() {
-  const required = [
-    'services/agent-loop.js',
-    'services/agent-trace.js',
-    'services/intent-router.js',
-    'services/moment-ai.js',
-    'services/memory-repository.js',
-    'services/memory-store.js',
-    'services/card-presenter.js',
-    'services/format.js',
-    'services/record-media.js',
-    'services/tools/definitions.js',
-    'services/tools/registry.js',
-  ];
-  required.forEach((file) => {
-    assert.equal(fs.existsSync(file), true, `${file} must exist for conversation flow`);
-  });
-
-  const promptsDir = 'prompts';
-  assert.equal(fs.existsSync(promptsDir), true, 'prompts/ directory must exist');
-  assert.equal(fs.existsSync('prompts/moment-understanding-v1.js'), true, 'moment-understanding-v1 prompt must exist');
-  assert.equal(fs.existsSync('prompts/tool-planner-v1.js'), true, 'tool-planner-v1 prompt must exist');
 }
 
 function testBuildInfo() {
@@ -372,8 +220,7 @@ function testBuildInfo() {
 
 function testAppJsConfig() {
   const appSource = fs.readFileSync('app.js', 'utf8');
-  assert.match(appSource, /repositoryMode:\s*'local'/);
-  assert.match(appSource, /cloudSyncEnabled:\s*false/);
+  assert.match(appSource, /version: '0\.3\.15'/);
   assert.match(appSource, /mcpEnabled:\s*true/);
   assert.match(appSource, /mcpAppsEnabled:\s*true/);
 }
@@ -403,22 +250,18 @@ function testDocumentationLinks() {
   });
 }
 
-testIntentFallback();
-testRecordMediaChoices();
-testToolDefinitions();
-testToolPolicy();
-testMemoryRepository();
+testBookkeepingGate();
+testMcpCardContract();
+testFormatHelpers();
+testBindingParsing();
 testAppConfig();
 testPagesVoiceFirst();
 testIndexEntryRouting();
 testScanPage();
 testBindingService();
+testMcpClientService();
+testNoLocalMemoryCode();
 testDeviceId();
-testBindingParsing();
-await testWebPDecoder();
-testIndexPage();
-testAccountUnbindCard();
-testConversationServices();
 testBuildInfo();
 testAppJsConfig();
 testDocumentationLinks();

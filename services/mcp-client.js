@@ -17,7 +17,7 @@ import {
 import { getValidAccessToken, tryRefresh } from './binding.js';
 
 const MCP_CLIENT_NAME = 'moment-one-glasses';
-const MCP_CLIENT_VERSION = '0.3.9';
+const MCP_CLIENT_VERSION = '0.3.15';
 
 // Streamable HTTP 请求头（与 Server SDK 要求一致，见 tests/api/test_mcp_server.py）
 const DEFAULT_HEADERS = {

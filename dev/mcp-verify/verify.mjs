@@ -226,21 +226,6 @@ async function scenarioPrompts() {
     found ? `prompts=${prompts.length} 文本长度=${fetched.text.length}` : '未找到 bookkeeping-assistant');
 }
 
-async function scenarioDynamicTools() {
-  const { loadMcpToolDefinitions, loadMcpPrompt } = await import('../../services/mcp-tools.js');
-  const definitions = await loadMcpToolDefinitions({ endpointUrl: VERIFY_URL });
-  const names = definitions.map((tool) => tool.function.name);
-  const promptText = await loadMcpPrompt('bookkeeping-assistant', { endpointUrl: VERIFY_URL });
-  const ok = definitions.length >= 5
-    && names.includes('bookkeeping_create')
-    && names.includes('bookkeeping_summary')
-    && names.includes('bookkeeping_plan')
-    && definitions.every((tool) => tool.function.parameters && tool.function.parameters.type === 'object')
-    && promptText.includes('bookkeeping_create');
-  report('S11 动态工具声明 LanguageModel 格式 + 远程提示词加载', ok,
-    `tools=${definitions.length} (${names.join('/')}) prompt=${promptText.length}字`);
-}
-
 async function scenarioPlan() {
   const mcp = client();
   const now = new Date();
@@ -302,7 +287,6 @@ async function main() {
     await scenarioSessionExpiry();
     await scenarioRpcError();
     await scenarioPrompts();
-    await scenarioDynamicTools();
     await scenarioPlan();
 
     const tokenStillValid = await getValidAccessToken();

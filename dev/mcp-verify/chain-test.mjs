@@ -1,9 +1,8 @@
-// 记账整链路验证：mock LanguageModel（若被调用则直接抛错），
-// 证明记账/查账话术由「远程 bookkeeping_plan → 远程工具执行」确定性完成，
-// 不依赖 LLM 质量；非记账话术才走到 LLM。
+// 记账整链路验证：话术 → 远程 bookkeeping_plan → 远程工具执行（纯 MCP，
+// 不依赖设备 LLM / 本地存储）。非记账话术返回远程提示话术。
 //
 // 运行（需 standalone server 已启动）：
-//   MCP_VERIFY_TOKEN=<token> node --import ./dev/mcp-verify/register-chain.mjs \
+//   MCP_VERIFY_TOKEN=<token> node --import ./dev/mcp-verify/register.mjs \
 //     ./dev/mcp-verify/chain-test.mjs
 import { runAgentTurn } from '../../services/agent-loop.js';
 import { __seedStorage, __redirectUrl } from './wx-shim.mjs';
@@ -60,10 +59,11 @@ async function main() {
       && createTurn.intent.result.id && createTurn.intent.result.amount === 28.5,
     `id=${createTurn.intent && createTurn.intent.result && createTurn.intent.result.id ? String(createTurn.intent.result.id).slice(0, 8) : '无'}`);
 
-  // 3) 非记账话术：LLM 被调用（mock 返回 moment_search toolcall → moment.query）
+  // 3) 非记账话术：返回远程提示（只支持记账）
   const otherTurn = await runAgentTurn({ utterance: '帮我找找上周吃过的面馆' });
-  report('链路 非记账话术 → LLM 路径',
-    otherTurn.intent && otherTurn.intent.type === 'moment.query',
+  report('链路 非记账话术 → 提示话术',
+    otherTurn.intent && otherTurn.intent.type === 'mcp.plan.reply'
+      && String(otherTurn.intent.reply || '').includes('记账'),
     `intent=${otherTurn.intent && otherTurn.intent.type}`);
 
   console.log(failed === 0 ? '\n===== 整链路验证：全部通过 =====' : `\n===== ${failed} 项失败 =====`);
