@@ -3,7 +3,6 @@
     "pages/index/index",
     "pages/scan/scan",
     "pages/cards/account-unbind",
-    "pages/cards/mcp-summary",
     "pages/mcp/detail"
   ],
   "window": {

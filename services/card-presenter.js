@@ -63,15 +63,16 @@ export function createAccountUnbindResultCard({ accountLabel = '当前账号', m
   };
 }
 
-// MCP Apps 结果卡片：bookkeeping_summary 的 structuredContent 直接映射为卡片数据
+// MCP 记账统计卡片数据契约：bookkeeping_summary 的 structuredContent 直接映射
 // （数据同源，不做本地二次聚合）。status='error' 时展示错误态。
+// 页面 UI 由眼镜端本地 .ink 渲染（index 内嵌卡片）；未来宿主 Tool Rendering
+// 支持时可用同一份 data 渲染对话内卡片。
 export function createMcpSummaryCard({ summary, message = '' } = {}) {
   const s = summary || {};
   const byCategory = Array.isArray(s.byCategory) ? s.byCategory : [];
   const period = String(s.period || 'month');
   const errorMessage = String(message || '');
   return {
-    route: 'pages/cards/mcp-summary',
     data: {
       period,
       periodLabel: formatPeriodLabel(period, s.year, s.month),

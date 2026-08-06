@@ -418,3 +418,26 @@ index 对话区**（对话式交互，不跳转；`mcpCard` 内嵌渲染：总�
 + 「查看详情」按钮）→ 点「查看详情」进全屏详情页（对话式 → 沉浸式流转）。
 宿主支持 Tool Rendering 后，同一份 card descriptor（`createMcpSummaryCard`）
 可直接渲染进宿主聊天流，形态升级为真正的对话内卡片。
+
+### 12.10 形态收敛与 UI 归属（2026-08-06）：移除被宿主误调的卡片页
+
+**用户反馈**：①不进入应用直接问「上月/本月花了多少」都返回本月；②进入应用后
+弹出卡片一直悬浮遮挡；③问页面 UI 是 Server 的还是本地的。
+
+**结论**：
+
+1. **UI 归属**：页面 UI **全部是眼镜端本地 .ink**（AIX 内）。Server 只提供
+   工具声明（JSON Schema）、`bookkeeping_plan` 解析、`structuredContent` 数据。
+   AIUI 无 app-bridge，不渲染 Server HTML/iframe（D5）。
+2. **「不进入应用都返回本月」根因**：`pages/cards/mcp-summary.ink` 有
+   `description` + `schema.data`，被宿主对话流识别为**页面工具**并调用；
+   但宿主模型无法填充卡片数据（它不执行 summary），页面兜底 `period=month`
+   → 永远本月。**修复：删除该卡片页**（index 内嵌卡片已替代其职责），
+   `card-presenter.createMcpSummaryCard` 仅保留数据契约（供 index 内嵌与
+   未来宿主 Tool Rendering 复用）；index 的 description/schema 明确为
+   「入口工具」（传 `initialUtterance` 调起）。
+3. **形态收敛为单一主形态**：沉浸式（index 全屏对话）+ 对话式内嵌卡片
+   （结果卡片出现在对话区、可收起、自动滚动到可见；「查看详情」进全屏详情页）。
+   不再有独立卡片页被宿主当作工具。
+
+**验证**：verify:mvp 全绿（4 页面）；整链路 e2e 通过；AIX 0.3.15 重新打包。

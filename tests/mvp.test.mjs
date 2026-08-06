@@ -55,7 +55,7 @@ function testMcpCardContract() {
       ],
     },
   });
-  assert.equal(card.route, 'pages/cards/mcp-summary');
+  assert.equal(typeof card.data, 'object');
   assert.equal(card.data.status, 'ready');
   assert.equal(card.data.period, 'month');
   assert.equal(card.data.count, 6);
@@ -106,7 +106,6 @@ function testAppConfig() {
     'pages/index/index',
     'pages/scan/scan',
     'pages/cards/account-unbind',
-    'pages/cards/mcp-summary',
     'pages/mcp/detail',
   ]);
 
@@ -125,7 +124,7 @@ function testPagesVoiceFirst() {
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
     // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP 卡片与详情页 + 入口页内嵌卡片
-    if (['cards/account-unbind.ink', 'cards/mcp-summary.ink', 'mcp/detail.ink', 'index/index.ink'].includes(String(file))) return;
+    if (['cards/account-unbind.ink', 'mcp/detail.ink', 'index/index.ink'].includes(String(file))) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
     assert.equal(

@@ -1,14 +1,14 @@
 <script def>
 {
   "navigationBarTitleText": "一刻",
-  "description": "记账助手（纯 MCP）：通过统一语音入口记账与查账——记一笔账、查询账单统计与明细，工具与提示词均由远程服务提供，结果以对话流卡片展示。",
+  "description": "记账助手入口（沉浸式对话页）：宿主对话流可传入 initialUtterance 自然语言记账/查账指令调起本页；页内语音入口 → 远程记账服务（bookkeeping_plan → create/summary/list）→ 结果卡片内嵌在对话区，点「查看详情」进全屏详情页。",
   "schema": {
     "data": {
       "type": "object",
       "properties": {
         "initialUtterance": {
           "type": "string",
-          "description": "可选的首句自然语言指令，由页面直接走记账预路由"
+          "description": "首句自然语言记账/查账指令（如：上个月花了多少 / 记一笔午餐 28.5 元），由页面直接走记账预路由"
         },
         "localDebug": {
           "type": "string",
@@ -54,6 +54,7 @@ export default {
     evidenceCount: 0,
     sttLabel: '待命',
     bindingGate: true,
+    scrollIntoView: '',
     // 内嵌对话流卡片（对话式 AIUI：结果卡片直接出现在对话区，不跳转）
     mcpCard: {
       visible: false,
@@ -387,7 +388,8 @@ export default {
           balanceLabel: card.data.balanceLabel,
           count: card.data.count,
           topCategories: byCategory
-        }
+        },
+        scrollIntoView: 'mcp-card'
       });
       console.info('[moment-one:mcp] bookkeeping summary card embedded in conversation', {
         period: card.data.period,
@@ -411,6 +413,11 @@ export default {
     } catch (error) {
       wx.redirectTo({ url });
     }
+  },
+
+  // 收起内嵌卡片（对话继续，不被卡片遮挡）
+  dismissMcpCard() {
+    this.setData({ 'mcpCard.visible': false, scrollIntoView: '' });
   },
 
   // 远程 MCP 工具结果 → 对话流展示
@@ -647,17 +654,20 @@ export default {
           </view>
         </view>
 
-        <scroll-view class="content-scroll" scroll-y="true">
+        <scroll-view class="content-scroll" scroll-y="true" scroll-into-view="{{ scrollIntoView }}">
           <text class="transcript" ink:if="{{ transcript }}">“{{ transcript }}”</text>
           <view class="answer-block" ink:if="{{ answer }}">
             <text class="answer-label">{{ answerLabel }}</text>
             <text class="answer-text">{{ answer }}</text>
           </view>
 
-          <view class="mcp-card" ink:if="{{ mcpCard.visible }}">
+          <view id="mcp-card" class="mcp-card" ink:if="{{ mcpCard.visible }}">
             <view class="mcp-card-head">
               <text class="mcp-card-eyebrow">记账统计 · {{ mcpCard.periodLabel }}</text>
-              <text class="mcp-card-count">{{ mcpCard.count }} 笔</text>
+              <view class="mcp-card-head-actions">
+                <text class="mcp-card-count">{{ mcpCard.count }} 笔</text>
+                <text class="mcp-card-dismiss" bindtap="dismissMcpCard">收起</text>
+              </view>
             </view>
             <view class="mcp-card-metrics">
               <view class="mcp-metric">
@@ -907,10 +917,26 @@ export default {
   font-weight: 700;
 }
 
+.mcp-card-head-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 .mcp-card-count {
   color: var(--color-text-secondary);
   font-size: 10px;
   line-height: 14px;
+}
+
+.mcp-card-dismiss {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  padding: 1px 6px;
+  border: var(--border-width-thin) solid var(--border-color-muted);
+  border-radius: var(--radius-sm);
 }
 
 .mcp-card-metrics {
