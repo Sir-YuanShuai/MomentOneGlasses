@@ -87,6 +87,16 @@ export default {
   onShow() {
     this.pageVisible = true;
     if (!this.localMode && !this.bindingReady) return;
+    // 兜底：从 MCP 卡片/详情页返回时，确保不卡在「处理中」（防止异常路径
+    // 残留 searching/classifying 状态导致无法进行下一次问答）
+    if (this.data.phase === 'searching' || this.data.phase === 'classifying') {
+      this.processing = false;
+      this.setData({
+        phase: 'idle',
+        statusTitle: '请直接说出要记的账或要查的账',
+        statusDetail: '例如「记一笔午餐 28.5 元」「上个月花了多少」'
+      });
+    }
     if (this.pendingInitialUtterance) {
       const utterance = this.pendingInitialUtterance;
       this.pendingInitialUtterance = '';
@@ -351,6 +361,12 @@ export default {
         count: card.data.count
       });
       const encoded = encodeURIComponent(JSON.stringify(card.data));
+      // 跳转前复位状态：从卡片页返回后可直接进行下一次问答（不再卡「处理中」）
+      this.setData({
+        phase: 'idle',
+        statusTitle: '已为你打开记账统计',
+        statusDetail: '返回后可继续记账或查账'
+      });
       wx.navigateTo({ url: `/pages/cards/mcp-summary?data=${encoded}` });
       return card;
     } catch (error) {
