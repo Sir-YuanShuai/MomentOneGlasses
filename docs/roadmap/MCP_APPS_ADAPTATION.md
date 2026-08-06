@@ -347,3 +347,27 @@ bookkeeping_summary 输出（Server/MCP/Web 同源）
 
 **验证**：Server 151 tests（含 prompts 单测）；眼镜端 e2e 新增 S10（prompts）/
 S11（动态工具声明）全部 PASS；Web 绑定回调修复（时间戳判定覆盖重绑场景）。
+
+### 12.8 记账预路由记录（2026-08-06）：bookkeeping_plan 远程确定性解析
+
+**问题复现**：①「上个月花了多少」仍查本月 —— LLM 参数不可靠（或设备旧包无上月解析）；
+②「记一笔」显示成功但后端无记录 —— 记账话术被本地 moment 流程接管，未走 MCP。
+
+**链路梳理结论**：工具/提示词已远程化，但「意图→参数」仍依赖设备 LLM 质量；
+且 Web 开发环境 `.env` 指向 `localhost:8000`，与眼镜端生产服务器不同库
+（环境不一致会放大「查不到」问题，需用户确认线上 Web）。
+
+**方案（解析也远程化，眼镜端只做极窄门槛判断）**：
+
+1. **Server 新增 MCP 工具 `bookkeeping_plan(input)`**（确定性规则）：
+   - 「上月/某月/某年/今年/去年/上季度」→ action=summary + 精确 year/month；
+   - 「记一笔/花了 xx 元/消费 xx/打车 xx」→ action=create + 金额/流向/分类/occurredAt/idempotencyKey；
+   - 「明细/账单/流水」→ action=list；无法识别 → action=none + reply 话术；
+2. **眼镜端 agent-loop 预路由**：话术过极窄记账门槛（`记账|记一笔|花了|消费|收支|账单…`）
+   后直接调 `bookkeeping_plan` → 按 action 执行对应远程工具 → 复用现有卡片/结果 UI；
+   plan=none 或失败 → 降级 LLM（远程工具+提示词路径保留）；LLM 不可用时用远程 reply；
+3. 修复门槛正则遗漏「记一笔」（不含「记账」字面）导致的漏判。
+
+**验证**：Server 152 tests（含 plan 单测）；e2e S12（上月→2026-7 精确参数、记一笔→
+create 参数、非记账→none）PASS；整链路 mock-LLM 验证（记账话术不触发 LLM、直接
+plan→执行落库，非记账话术正常走 LLM）PASS。

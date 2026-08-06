@@ -6,6 +6,28 @@ const storage = new Map();
 const refreshHandler = { fn: null };
 const injectOnce = { items: [] };
 const requestLog = [];
+const urlRedirects = [];
+
+// 测试注入：把匹配的请求 URL 重写（如生产 MCP 端点 → standalone）
+export function __redirectUrl(from, to) {
+  urlRedirects.push({ from, to });
+}
+
+export function __clearRedirects() {
+  urlRedirects.length = 0;
+}
+
+function rewriteUrl(url) {
+  let result = url;
+  for (let i = 0; i < urlRedirects.length; i += 1) {
+    const redirect = urlRedirects[i];
+    if (result.startsWith(redirect.from)) {
+      result = redirect.to + result.slice(redirect.from.length);
+      break;
+    }
+  }
+  return result;
+}
 
 function doRequest(options) {
   return new Promise((resolve, reject) => {
@@ -18,7 +40,7 @@ function doRequest(options) {
 }
 
 async function runRequest(options) {
-  const url = String(options.url || '');
+  const url = rewriteUrl(String(options.url || ''));
   const method = String(options.method || 'GET').toUpperCase();
   const header = options.header || {};
   const contentType = header['content-type'] || header['Content-Type'] || '';

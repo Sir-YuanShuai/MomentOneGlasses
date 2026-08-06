@@ -9,6 +9,14 @@ import { isMcpToolName, toLanguageModelTools } from './mcp-tools.js';
 // 远程记账提示词名称（Server MCP prompts/list）
 const REMOTE_PROMPT_NAME = 'bookkeeping-assistant';
 
+// 记账话术门槛（极窄的通道判断，不是工具定义/提示词内容）：
+// 命中后先走远程 bookkeeping_plan 确定性解析，LLM 只兜底模糊话术。
+const BOOKKEEPING_GATE = /记账|记(?:一笔|一下|个)|账本|账单|花了|消费|收支|结余|开销|支出|收入|明细|流水|入账|赚了|用了(\d|多少)/;
+
+function looksLikeBookkeeping(input) {
+  return BOOKKEEPING_GATE.test(String(input || ''));
+}
+
 function fallbackPlan(utterance, turn, reason) {
   const intent = fallbackRecognizeIntent(utterance);
   emitAgentTrace(turn, 'intent.fallback', {
@@ -68,6 +76,56 @@ function buildSystemPrompt(promptText) {
   return parts.join('').trim();
 }
 
+function mcpResultIntent(toolName, toolArguments, structuredContent) {
+  return {
+    type: 'mcp.tool.result',
+    toolName,
+    toolArguments: toolArguments || {},
+    result: structuredContent,
+    ok: true,
+    confidence: 1,
+    source: 'mcp-plan',
+  };
+}
+
+// 记账预路由：远程 bookkeeping_plan 确定性解析 → 直接执行对应工具。
+// 返回 null 表示不走预路由（交给 LLM）。
+async function tryBookkeepingPlan(input, turn) {
+  if (!looksLikeBookkeeping(input)) return null;
+
+  let mcpClient = null;
+  try {
+    mcpClient = createMcpClient();
+    const plan = await mcpClient.callTool('bookkeeping_plan', { input });
+    const action = String(plan.action || 'none');
+    const args = plan.args && typeof plan.args === 'object' ? plan.args : {};
+    emitAgentTrace(turn, 'bookkeeping.plan', { action, args: JSON.stringify(args) });
+
+    if (action === 'none') {
+      // 远程未识别 → 交给 LLM（或 LLM 不可用时返回远程 reply）
+      return { reply: String(plan.reply || ''), intent: null };
+    }
+    if (action === 'summary') {
+      const result = await mcpClient.callTool('bookkeeping_summary', args);
+      return { intent: mcpResultIntent('bookkeeping_summary', args, result) };
+    }
+    if (action === 'create') {
+      const result = await mcpClient.callTool('bookkeeping_create', args);
+      return { intent: mcpResultIntent('bookkeeping_create', args, result) };
+    }
+    if (action === 'list') {
+      const result = await mcpClient.callTool('bookkeeping_list', args);
+      return { intent: mcpResultIntent('bookkeeping_list', args, result) };
+    }
+    return null;
+  } catch (error) {
+    console.warn('[moment-one:mcp] bookkeeping plan failed, fall back to LLM', error);
+    return null;
+  } finally {
+    if (mcpClient) mcpClient.reset();
+  }
+}
+
 export async function runAgentTurn({ utterance, forcedMode = '' }) {
   const input = String(utterance || '').trim();
   const turn = createTurnTrace(input);
@@ -83,7 +141,21 @@ export async function runAgentTurn({ utterance, forcedMode = '' }) {
   let session = null;
   let mcpClient = null;
   try {
+    // 记账预路由：远程确定性解析（不依赖 LLM 质量），命中即执行并返回
+    const planned = await tryBookkeepingPlan(input, turn);
+    if (planned && planned.intent) {
+      return { intent: planned.intent, turnId: turn.turnId, source: 'bookkeeping-plan' };
+    }
+
     if ((await LanguageModel.availability()) !== 'available') {
+      // LLM 不可用：远程已给出提示话术（plan=none）时直接回复，否则走本地兜底
+      if (planned && planned.reply) {
+        return {
+          intent: { type: 'mcp.plan.reply', reply: planned.reply, confidence: 1, source: 'bookkeeping-plan' },
+          turnId: turn.turnId,
+          source: 'bookkeeping-plan',
+        };
+      }
       return fallbackPlan(input, turn, 'language-model-unavailable');
     }
 

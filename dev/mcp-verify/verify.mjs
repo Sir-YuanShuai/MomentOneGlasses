@@ -76,7 +76,7 @@ async function scenarioDiscovery() {
   const mcp = client();
   const { tools } = await mcp.listTools();
   const names = tools.map((tool) => tool.name);
-  const required = ['bookkeeping_create', 'bookkeeping_list', 'bookkeeping_summary', 'moments_get'];
+  const required = ['bookkeeping_create', 'bookkeeping_list', 'bookkeeping_summary', 'bookkeeping_plan', 'moments_get'];
   const missing = required.filter((name) => !names.includes(name));
   report('S1 MCP 发现 tools/list', missing.length === 0 && tools.length > 0,
     `tools=${tools.length} 缺失=${missing.join(',') || '无'}`);
@@ -231,13 +231,50 @@ async function scenarioDynamicTools() {
   const definitions = await loadMcpToolDefinitions({ endpointUrl: VERIFY_URL });
   const names = definitions.map((tool) => tool.function.name);
   const promptText = await loadMcpPrompt('bookkeeping-assistant', { endpointUrl: VERIFY_URL });
-  const ok = definitions.length >= 4
+  const ok = definitions.length >= 5
     && names.includes('bookkeeping_create')
     && names.includes('bookkeeping_summary')
+    && names.includes('bookkeeping_plan')
     && definitions.every((tool) => tool.function.parameters && tool.function.parameters.type === 'object')
     && promptText.includes('bookkeeping_create');
   report('S11 动态工具声明 LanguageModel 格式 + 远程提示词加载', ok,
     `tools=${definitions.length} (${names.join('/')}) prompt=${promptText.length}字`);
+}
+
+async function scenarioPlan() {
+  const mcp = client();
+  const now = new Date();
+  const lastMonth = now.getUTCMonth() === 0 ? 12 : now.getUTCMonth();
+  const lastMonthYear = now.getUTCMonth() === 0 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+
+  // 1) 上月查询 → summary + 精确 year/month（不再默认本月）
+  const summaryPlan = await mcp.callTool('bookkeeping_plan', { input: '上个月花了多少钱' });
+  const summaryOk = summaryPlan.action === 'summary'
+    && summaryPlan.args.period === 'month'
+    && summaryPlan.args.month === lastMonth
+    && summaryPlan.args.year === lastMonthYear;
+
+  // 2) 记一笔 → create + 金额/流向/分类
+  const createPlan = await mcp.callTool('bookkeeping_plan', { input: '记一笔午餐28.5元' });
+  const createOk = createPlan.action === 'create'
+    && createPlan.args.amount === 28.5
+    && createPlan.args.flow === 'expense'
+    && createPlan.args.category === '餐饮'
+    && createPlan.args.idempotencyKey;
+
+  // 3) 按 plan 参数执行 summary（模拟眼镜端预路由执行）→ 上月数据可查
+  const executed = await mcp.callTool('bookkeeping_summary', summaryPlan.args);
+  const executeOk = executed.period === 'month'
+    && executed.month === lastMonth
+    && executed.year === lastMonthYear;
+
+  // 4) 非记账话术 → action=none + reply
+  const nonePlan = await mcp.callTool('bookkeeping_plan', { input: '今天天气不错' });
+  const noneOk = nonePlan.action === 'none' && nonePlan.reply.length > 0;
+
+  report('S12 远程意图解析 bookkeeping_plan（上月/记一笔/非记账）',
+    summaryOk && createOk && executeOk && noneOk,
+    `summary(${summaryPlan.args.year}-${summaryPlan.args.month}) create(${createPlan.args.amount}/${createPlan.args.flow}/${createPlan.args.category}) none=${noneOk}`);
 }
 
 async function main() {
@@ -266,6 +303,7 @@ async function main() {
     await scenarioRpcError();
     await scenarioPrompts();
     await scenarioDynamicTools();
+    await scenarioPlan();
 
     const tokenStillValid = await getValidAccessToken();
     report('S9 绑定 token 仍有效', tokenStillValid === VERIFY_TOKEN, '');

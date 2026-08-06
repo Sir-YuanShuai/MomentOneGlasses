@@ -696,6 +696,9 @@ export default {
       case 'mcp.tool.result':
         this.presentMcpToolResult(intent);
         return;
+      case 'mcp.plan.reply':
+        this.setResult('没有识别到记账意图', String(intent.reply || '可以试试「上个月花了多少」或「记一笔午餐 28.5 元」。'), '记账助手');
+        return;
       case 'help':
         this.showHelp();
         return;
