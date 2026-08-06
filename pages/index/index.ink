@@ -54,6 +54,17 @@ export default {
     evidenceCount: 0,
     sttLabel: '待命',
     bindingGate: true,
+    // 内嵌对话流卡片（对话式 AIUI：结果卡片直接出现在对话区，不跳转）
+    mcpCard: {
+      visible: false,
+      period: 'month',
+      periodLabel: '',
+      incomeLabel: '',
+      expenseLabel: '',
+      balanceLabel: '',
+      count: 0,
+      topCategories: []
+    },
     softwareVersion: APP_VERSION,
     buildId: String(BUILD_ID).slice(0, 8)
   },
@@ -329,7 +340,8 @@ export default {
     }
   },
 
-  // 记账统计 → 对话流结果卡片（summary 已取到时直接复用，避免二次调用）
+  // 记账统计 → 内嵌对话流卡片（对话式 AIUI：卡片出现在对话区，不跳转；
+  // 「查看详情」才进全屏页）。summary 已取到时直接复用，避免二次调用。
   async presentMcpSummary(period, summary, args) {
     if (this.processing) return;
     this.processing = true;
@@ -355,25 +367,49 @@ export default {
         resolved = await client.callTool('bookkeeping_summary', callArgs);
       }
       this.processing = false;
+
       const card = createMcpSummaryCard({ summary: resolved });
-      console.info('[moment-one:mcp] bookkeeping summary card prepared', {
+      const byCategory = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
+      this.setData({
+        phase: 'answered',
+        statusTitle: '已为你整理记账统计',
+        statusDetail: `本月支出 ${card.data.expenseLabel} / 收入 ${card.data.incomeLabel} / 结余 ${card.data.balanceLabel}，共 ${card.data.count} 笔`,
+        answer: '',
+        answerLabel: '记账统计',
+        evidenceCount: card.data.count,
+        sttLabel: '待命',
+        mcpCard: {
+          visible: true,
+          period: card.data.period,
+          periodLabel: card.data.periodLabel,
+          incomeLabel: card.data.incomeLabel,
+          expenseLabel: card.data.expenseLabel,
+          balanceLabel: card.data.balanceLabel,
+          count: card.data.count,
+          topCategories: byCategory
+        }
+      });
+      console.info('[moment-one:mcp] bookkeeping summary card embedded in conversation', {
         period: card.data.period,
         count: card.data.count
       });
-      const encoded = encodeURIComponent(JSON.stringify(card.data));
-      // 跳转前复位状态：从卡片页返回后可直接进行下一次问答（不再卡「处理中」）
-      this.setData({
-        phase: 'idle',
-        statusTitle: '已为你打开记账统计',
-        statusDetail: '返回后可继续记账或查账'
-      });
-      wx.navigateTo({ url: `/pages/cards/mcp-summary?data=${encoded}` });
       return card;
     } catch (error) {
       console.error('[moment-one:mcp] bookkeeping summary failed:', error);
       this.processing = false;
       this.setResult('记账统计不可用', describeMcpError(error), 'MCP 结果');
       return null;
+    }
+  },
+
+  // 内嵌卡片 → 全屏详情页（对话式 → 沉浸式流转）
+  openMcpDetail() {
+    if (!this.data.mcpCard.visible) return;
+    const url = `/pages/mcp/detail?period=${encodeURIComponent(this.data.mcpCard.period || 'month')}`;
+    try {
+      wx.navigateTo({ url });
+    } catch (error) {
+      wx.redirectTo({ url });
     }
   },
 
@@ -617,6 +653,34 @@ export default {
             <text class="answer-label">{{ answerLabel }}</text>
             <text class="answer-text">{{ answer }}</text>
           </view>
+
+          <view class="mcp-card" ink:if="{{ mcpCard.visible }}">
+            <view class="mcp-card-head">
+              <text class="mcp-card-eyebrow">记账统计 · {{ mcpCard.periodLabel }}</text>
+              <text class="mcp-card-count">{{ mcpCard.count }} 笔</text>
+            </view>
+            <view class="mcp-card-metrics">
+              <view class="mcp-metric">
+                <text class="mcp-metric-label">支出</text>
+                <text class="mcp-metric-value">{{ mcpCard.expenseLabel }}</text>
+              </view>
+              <view class="mcp-metric">
+                <text class="mcp-metric-label">收入</text>
+                <text class="mcp-metric-value">{{ mcpCard.incomeLabel }}</text>
+              </view>
+              <view class="mcp-metric">
+                <text class="mcp-metric-label">结余</text>
+                <text class="mcp-metric-value">{{ mcpCard.balanceLabel }}</text>
+              </view>
+            </view>
+            <view class="mcp-card-cats" ink:if="{{ mcpCard.topCategories.length }}">
+              <view class="mcp-cat" ink:for="{{ mcpCard.topCategories }}" ink:key="category">
+                <text class="mcp-cat-name">{{ item.category }}</text>
+                <text class="mcp-cat-amount">{{ item.amountLabel }}</text>
+              </view>
+            </view>
+            <button class="mcp-card-action" bindtap="openMcpDetail">查看详情</button>
+          </view>
         </scroll-view>
       </card>
 
@@ -817,6 +881,97 @@ export default {
 .answer-text {
   font-size: 14px;
   line-height: 20px;
+}
+
+.mcp-card {
+  margin: 4px var(--card-padding) var(--card-padding);
+  padding: var(--spacing-sm);
+  border: var(--border-width-thin) solid var(--border-color-muted);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcp-card-head {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mcp-card-eyebrow {
+  color: var(--color-primary);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+}
+
+.mcp-card-count {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.mcp-card-metrics {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+}
+
+.mcp-metric {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 2px;
+  border: var(--border-width-thin) solid var(--border-color-muted);
+  border-radius: var(--radius-sm);
+}
+
+.mcp-metric-label {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.mcp-metric-value {
+  font-size: 14px;
+  line-height: 19px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.mcp-card-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mcp-cat {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.mcp-cat-name {
+  color: var(--color-text-secondary);
+}
+
+.mcp-cat-amount {
+  color: var(--color-primary);
+}
+
+.mcp-card-action {
+  min-height: 34px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 34px;
+  color: var(--color-background);
+  background-color: var(--color-primary);
 }
 
 .intent-guide {

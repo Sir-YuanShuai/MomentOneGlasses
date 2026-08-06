@@ -124,8 +124,8 @@ function testPagesVoiceFirst() {
   const inkPages = fs.readdirSync('pages', { recursive: true })
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
-    // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP 卡片与详情页（D4 决策）
-    if (['cards/account-unbind.ink', 'cards/mcp-summary.ink', 'mcp/detail.ink'].includes(String(file))) return;
+    // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP 卡片与详情页 + 入口页内嵌卡片
+    if (['cards/account-unbind.ink', 'cards/mcp-summary.ink', 'mcp/detail.ink', 'index/index.ink'].includes(String(file))) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
     assert.equal(
@@ -143,6 +143,8 @@ function testIndexEntryRouting() {
   assert.match(source, /APP_VERSION/, 'index must display the unified app version');
   assert.match(source, /BUILD_ID/, 'index must display the packaged build id');
   assert.match(source, /runAgentTurn/, 'index must route utterances through the MCP pre-router');
+  assert.match(source, /mcpCard/, 'index must embed the MCP summary card in the conversation (conversational AIUI)');
+  assert.match(source, /openMcpDetail/, 'index must open the full-screen detail from the embedded card');
   assert.doesNotMatch(source, /saveMoment/, 'index must not keep local moment storage code');
   assert.doesNotMatch(source, /memory-repository|memory-store|moment-ai/, 'index must not import local memory services');
 }

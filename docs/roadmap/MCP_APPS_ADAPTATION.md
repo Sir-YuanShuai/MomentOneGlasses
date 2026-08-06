@@ -28,16 +28,26 @@
 
 ### 1.4 交互形态（用户确认）
 
+> 术语对齐（官方 ROKID.js AIUI）：**沉浸式界面交互（Immersive UI）** = 独立全屏界面承载
+> 完整交互（如 index 主页面对话）；**对话内交互（In-Conversation UI）** = 卡片/表单直接嵌入
+> 聊天流（由宿主 Tool Rendering 渲染）。下文「对话流卡片」均指对话内交互。
+
 ```text
-主页面（index）对话（非沉浸式）
+主页面（index）对话（沉浸式界面，index 全屏页）
   → 触发 MCP 工具调用（如"这个月花了多少"）
   → 结果以对话流卡片弹出（总结置顶，占满屏幕不超出）
   → 用户点击卡片/按钮 → 进入全屏滚动页（上下翻动查看细节）
   → 页面内有按钮可触发动作（确认、重新查询等）
 ```
 
-- **不在沉浸式对话中调用 MCP**；工具结果以卡片形式出现在对话流，需要深看时点击进入全屏页；
+- **不在 index 沉浸式对话内直接执行 MCP**（避免语音流中断）；工具结果以卡片形式
+  出现在对话流，需要深看时点击进入全屏页；
 - 卡片大小适中，占满屏幕即可（448×352 约束内），总结放最上、细节放下面。
+
+> 说明：对话流卡片的出现依赖**宿主 Tool Rendering**（宿主 Agent 按 card descriptor
+> 协议在聊天流中渲染）。App 侧返回 `{ route, data }` 卡片描述符（card-presenter），
+> 并以全屏卡片页导航（navigateTo）作为 fallback；宿主不支持渲染时表现为
+> 文本回复或跳转全屏页（见 §12.9）。
 
 ## 2. 交互能力确认（基于现有代码证据）
 
@@ -371,3 +381,40 @@ S11（动态工具声明）全部 PASS；Web 绑定回调修复（时间戳判�
 **验证**：Server 152 tests（含 plan 单测）；e2e S12（上月→2026-7 精确参数、记一笔→
 create 参数、非记账→none）PASS；整链路 mock-LLM 验证（记账话术不触发 LLM、直接
 plan→执行落库，非记账话术正常走 LLM）PASS。
+
+### 12.9 沉浸式 vs 对话内交互（2026-08-06）：术语对齐与平台能力边界
+
+**官方术语**（ROKID.js AIUI quickstart-intro）：
+
+| 官方术语 | 形态 | 谁渲染 | 我们项目对应 |
+|---|---|---|---|
+| 沉浸式界面交互（Immersive UI） | 独立全屏界面承载完整交互，AI 与用户围绕同一界面协作 | App 自身（navigateTo 打开） | `pages/index/index` 主页面对话、`pages/mcp/detail` 详情页 |
+| 对话内交互（In-Conversation UI） | 卡片/表单/工具面板**直接嵌入聊天流**，可点击、选择 | **宿主**（Host Tool Rendering / A2UI）按 card descriptor 渲染 | `pages/cards/mcp-summary` 卡片（descriptor 由 card-presenter 返回） |
+
+**为什么"对话流里没有卡片"**：对话内卡片必须由**宿主**渲染——宿主 Agent 调用工具时
+按协议把 card descriptor（`{ route, data }`）或 A2UI 命令流渲染进聊天流。App 侧无法
+主动把卡片"塞进"宿主对话流。我们 App 内的对话发生在 index 全屏页（沉浸式界面），
+能做的只有：返回 descriptor（已做）+ 全屏卡片页 fallback（已做）。当前宿主未接入
+Tool Rendering 时，表现为文本回复或跳转全屏页。
+
+**什么情况用哪种**：
+
+- **对话内卡片**：结果可快速扫读的场景——统计摘要（本月支出/收入/结余）、单条结果、
+  确认类提示。眼镜是"快速可扫读"设备，摘要型结果适合留在对话流。
+- **沉浸式全屏页**：需要深度交互的场景——滚动明细、图表、按钮操作（记一笔/重新统计）。
+
+两者可流转（官方：conversation-flow card → full-screen page）：卡片看摘要，点进全屏
+看细节——即 §1.4 设计的形态。
+
+**要让对话流直接出现卡片，需要**：
+
+1. 宿主（Rokid 对话环境/调试器）支持 Tool Rendering，能渲染我们返回的 card descriptor；
+2. 若宿主支持 A2UI，可改用 A2UI 命令流渲染（`<a2ui>` 组件）；
+3. 需向 AIUI 官方确认当前版本 Tool Rendering 的接入方式与声明格式（工具返回
+   `_meta` / card 字段的约定），确认后由 Server 工具结果或眼镜端工具返回附带卡片描述。
+
+当前可用路径（已验证）：语音入口 → 远程 plan → MCP 执行 → **结果卡片内嵌在
+index 对话区**（对话式交互，不跳转；`mcpCard` 内嵌渲染：总结置顶 + 分类 Top3
++ 「查看详情」按钮）→ 点「查看详情」进全屏详情页（对话式 → 沉浸式流转）。
+宿主支持 Tool Rendering 后，同一份 card descriptor（`createMcpSummaryCard`）
+可直接渲染进宿主聊天流，形态升级为真正的对话内卡片。
