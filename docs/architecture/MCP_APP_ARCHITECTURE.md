@@ -15,11 +15,12 @@
 - MCP App AIUI 降级页面；
 - OAuth 和远程 Tool 授权。
 
-当前 AIX 只包含本地 `LanguageModel.tools`、本地 Moment CRUD 和两种只读对话流卡片：
+当前 AIX 只包含本地 `LanguageModel.tools`、本地 Moment CRUD、两种只读对话流卡片和一个带确认 action 的账号安全卡片：
 
 ```text
 pages/cards/moment-result
 pages/cards/memory-answer
+pages/cards/account-unbind
 ```
 
 ## 2. 未来目标

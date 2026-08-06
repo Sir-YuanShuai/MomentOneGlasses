@@ -104,7 +104,7 @@ npm run pack:aix
 默认产物为 `dist/moment-one-<version>.aix`，包内会生成唯一 UUID 格式的 `VERSION` 文件，用于避免设备缓存旧页面。打包完成后必须执行：
 
 ```bash
-npm run check:aix-size -- dist/moment-one-0.3.7.aix
+npm run check:aix-size -- dist/moment-one-0.3.9.aix
 ```
 
 也可以传入包含 AIX 包的目录；任意文件超限都会返回非零退出码并阻止发布：

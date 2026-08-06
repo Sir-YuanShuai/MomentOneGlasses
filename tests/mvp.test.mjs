@@ -18,6 +18,7 @@ import {
 } from '../services/binding-core.js';
 import { decodeCameraImage } from '../services/image-decode.js';
 import { decodeWebP } from '../services/webp.js';
+import { createAccountUnbindCard, createAccountUnbindResultCard } from '../services/card-presenter.js';
 import { decodeQrPixels } from '../services/qr-fallback.js';
 import { createDeviceId } from '../services/device-id.js';
 
@@ -96,7 +97,7 @@ function testToolDefinitions() {
   assert.ok(Array.isArray(MOMENT_TOOL_DEFINITIONS));
   assert.ok(MOMENT_TOOL_DEFINITIONS.length >= 4, 'must define at least 4 moment tools');
   const names = MOMENT_TOOL_DEFINITIONS.map((tool) => tool.function.name);
-  ['moment_create', 'moment_search', 'moment_update', 'moment_delete_request'].forEach((required) => {
+  ['moment_create', 'moment_search', 'moment_update', 'moment_delete_request', 'account_unbind_request'].forEach((required) => {
     assert.ok(names.includes(required), `tool ${required} must be defined`);
   });
   MOMENT_TOOL_DEFINITIONS.forEach((tool) => {
@@ -159,6 +160,7 @@ function testAppConfig() {
     'pages/scan/scan',
     'pages/cards/moment-result',
     'pages/cards/memory-answer',
+    'pages/cards/account-unbind',
   ]);
 
   appConfig.pages.forEach((route) => {
@@ -175,6 +177,7 @@ function testPagesVoiceFirst() {
   const inkPages = fs.readdirSync('pages', { recursive: true })
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
+    if (String(file).endsWith('cards/account-unbind.ink')) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
     assert.equal(
@@ -221,6 +224,7 @@ function testBindingService() {
   assert.match(configSource, /SERVER_BASE_URL/, 'config must define SERVER_BASE_URL');
   assert.match(configSource, /OAUTH_TOKEN_URL/, 'config must define OAUTH_TOKEN_URL');
   assert.match(configSource, /STORAGE_KEYS/, 'config must define STORAGE_KEYS');
+  assert.match(configSource, /DEVICE_BINDINGS_URL/, 'config must define the self-unbind endpoint');
   assert.match(configSource, /REFRESH_TOKEN_HARD_TTL_SECONDS/, 'config must enforce the refresh hard limit');
 
   const bindingSource = fs.readFileSync('services/binding.js', 'utf8');
@@ -233,6 +237,7 @@ function testBindingService() {
   assert.match(bindingSource, /wx\.request/, 'binding must use wx.request for network calls');
   assert.match(bindingSource, /refreshTokenExpiresAt/, 'binding must preserve the hard refresh deadline');
   assert.match(bindingSource, /token bundle persisted/, 'binding must read back the persisted token bundle');
+  assert.match(bindingSource, /export async function unbindAccount/, 'binding must expose confirmed account unbind');
   assert.doesNotMatch(bindingSource, /verifyTokenWithServer/, 'binding must not probe the Web management endpoint as validation');
 }
 
@@ -246,6 +251,12 @@ function testDeviceId() {
 
 function testBindingParsing() {
   const code = 'A'.repeat(22);
+  assert.equal(fallbackRecognizeIntent('解绑当前账号').type, 'account.unbind.request');
+  assert.equal(fallbackRecognizeIntent('请解除绑定账户').type, 'account.unbind.request');
+  const unbindCard = createAccountUnbindCard();
+  assert.equal(unbindCard.route, 'pages/cards/account-unbind');
+  assert.equal(unbindCard.data.status, 'confirm');
+  assert.equal(createAccountUnbindResultCard({ remoteRevoked: true }).data.status, 'success');
   assert.equal(normalizeBindingCode(code), code);
   assert.equal(parseQrPayload(`momentone://bind?code=${code}`), code);
   assert.equal(parseQrPayload(`momentone://bind?code=${encodeURIComponent(code)}`), code);
@@ -297,6 +308,24 @@ function testIndexPage() {
   assert.doesNotMatch(source, /pages\/welcome\/welcome/, 'index must not reference removed welcome page');
   // 支持本地模式跳过绑定
   assert.match(source, /localMode/, 'index page must support localMode parameter');
+  assert.match(source, /presentAccountUnbindCard/, 'index must render the unbind card request through the card presenter');
+  assert.match(source, /扫码绑定账号/, 'index binding gate must target the account');
+}
+
+function testAccountUnbindCard() {
+  const source = fs.readFileSync('pages/cards/account-unbind.ink', 'utf8');
+  assert.match(source, /确认解绑/);
+  assert.match(source, /bindtap=\"confirmUnbind\"/);
+  assert.match(source, /bindtap=\"cancelUnbind\"/);
+  assert.match(source, /unbindAccount/);
+  assert.match(source, /onKeyUp/);
+  assert.match(source, /selectedAction/);
+  assert.match(source, /navigateBack/);
+  const appConfig = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+  assert.ok(appConfig.pages.includes('pages/cards/account-unbind'));
+  const bindingSource = fs.readFileSync('services/binding.js', 'utf8');
+  assert.match(bindingSource, /export async function unbindAccount/);
+  assert.match(bindingSource, /method: 'DELETE'/);
 }
 
 function testConversationServices() {
@@ -377,6 +406,7 @@ testDeviceId();
 testBindingParsing();
 await testWebPDecoder();
 testIndexPage();
+testAccountUnbindCard();
 testConversationServices();
 testBuildInfo();
 testAppJsConfig();

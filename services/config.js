@@ -3,6 +3,7 @@ export const SERVER_BASE_URL = 'https://moment-one-api.yuanshuai.fun';
 
 // OAuth 2.1 Token 端点
 export const OAUTH_TOKEN_URL = SERVER_BASE_URL + '/oauth/token';
+export const DEVICE_BINDINGS_URL = SERVER_BASE_URL + '/v1/device/bindings';
 
 // OAuth grant type
 export const QR_BINDING_GRANT_TYPE = 'urn:momentone:oauth:grant-type:qr-binding';

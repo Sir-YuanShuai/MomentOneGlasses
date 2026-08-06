@@ -113,11 +113,12 @@ onVoiceWakeup 接收 keyword
 pages/index/index
 ```
 
-非沉浸式只读卡片：
+非沉浸式对话流卡片：
 
 ```text
 pages/cards/moment-result
 pages/cards/memory-answer
+pages/cards/account-unbind（确认解绑账号）
 ```
 
 卡片不包含按钮或 `bindtap`，后续操作通过下一轮语音完成。

@@ -4,7 +4,7 @@
 
 - **Name**: 一刻 YiKe · Moment One
 - **English Name**: Moment One
-- **Version**: 0.3.7
+- **Version**: 0.3.9
 - **Description**: 一刻是面向 Rokid AI Glasses 的私人生活记忆助手。当用户直接表达具体生活经历、当下观察、感受、地点、美食、灵感或日常事件时，应识别为记录意图，不要求用户先说“记录”或“记住”。用户也可以查询、回顾、修改或删除自己的生活记忆，或配置即刻记忆等功能。一刻不会把百科问题、公开信息查询、写作请求或不明确内容保存为 Moment。回答只依据用户自己的 Moment 证据；删除操作必须二次确认；网络、模型或相机不可用时仍提供确定性降级。
 - **Opening**: 我是「一刻」，你的私人生活记忆助手。你可以直接说“今天第一次带妈妈看海”“刚在西湖边散步，阳光很好”“帮我找找上周吃过的那家面馆”，或“回顾一下我今天做了什么”。我会自动判断这是记录还是其他操作，也只会依据你自己的记录回答。
 - **Slogan**: AI 替你记住人生。
@@ -33,6 +33,7 @@
   - update_moment
   - delete_moment
   - configure_memory
+  - account_unbind
 
 ## Project Structure
 
@@ -40,7 +41,7 @@
 - `app.js`：应用生命周期及全局配置。
 - `pages/index/index.ink`：唯一应用入口；未绑定时显示绑定门，已绑定时进入 Moment 记录入口。
 - `pages/scan/scan.ink`：扫码绑定页，相机拍照 + AIX 本地 QR 解码器换取 token。
-- `pages/cards/`：非沉浸式、只读的对话流结果卡片（moment-result、memory-answer）。
+- `pages/cards/`：对话流卡片；`moment-result`、`memory-answer` 为只读结果卡片，`account-unbind` 为带明确确认/取消 action 的安全操作卡片。
 - `services/`：本地 Repository、AI 理解与格式化逻辑、设备绑定。
 - `services/memory-repository.js`：可测试的纯本地 Moment Repository 核心。
 - `services/memory-store.js`：将 Repository 绑定到 AIUI `wx` Storage。

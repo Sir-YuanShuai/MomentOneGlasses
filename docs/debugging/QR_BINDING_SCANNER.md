@@ -1,8 +1,8 @@
 # 扫码绑定：相机与二维码识别排障记录
 
-- 状态：已对照 Rokid 官方 AIUI scanner sample 重构；0.3.7 增加 `<camera>`、WebP 解码与官方 BarcodeDetector 链路，待真机复测
+- 状态：已对照 Rokid 官方 AIUI scanner sample 重构；0.3.9 增加 `<camera>`、WebP 解码与官方 BarcodeDetector 链路，待真机复测
 - 日期：2026-08-05
-- 适用版本：MomentOneGlasses `0.3.7`
+- 适用版本：MomentOneGlasses `0.3.9`
 - 范围：仅 `MomentOneGlasses`，不修改 Server
 
 ## 1. 最终采用的页面与流程
@@ -146,14 +146,14 @@ WebP ArrayBuffer
 → findBindingCode()
 ```
 
-## 6. 真机问题根因与 0.3.7 修复
+## 6. 真机问题根因与 0.3.9 修复
 
 真机表现为“先显示无法读取照片，随后预览图出现并消失”，不是简单的 Promise 等待不足。对照官方 scanner sample 后确认，之前实现有两个不一致：
 
 1. scan 页面没有 `<camera>` 组件；
 2. 真机主要返回 WebP，但之前只按 PNG/JPEG 处理。
 
-0.3.7 已改为官方链路：
+0.3.9 已改为官方链路：
 
 ```text
 <camera> 预览
@@ -168,7 +168,7 @@ WebP ArrayBuffer
 
 真机复测时：
 
-1. 安装 AIX 后确认首页版本显示为 `v0.3.7 · build <短码>`；
+1. 安装 AIX 后确认首页版本显示为 `v0.3.9 · build <短码>`；
 2. 进入扫码页，确认能看到相机预览区域；
 3. 二维码保持稳定，只按一次确认键；
 4. 等待相机预览完成，页面应自动进入识别，不需要再次确认；
@@ -176,9 +176,26 @@ WebP ArrayBuffer
 
 ## 6.1 关于是否需要提交官方 issue
 
-目前不建议马上提交 issue，因为官方仓库已经有对应 scanner sample，并明确采用 `<camera>` + WebP 解码 + BarcodeDetector 的链路。若 0.3.7 仍失败，再提交 issue 时应以官方 sample 为最小复现，而不是提交当前完整业务应用。
+目前不建议马上提交 issue，因为官方仓库已经有对应 scanner sample，并明确采用 `<camera>` + WebP 解码 + BarcodeDetector 的链路。若 0.3.9 仍失败，再提交 issue 时应以官方 sample 为最小复现，而不是提交当前完整业务应用。
 
-## 7. 已解决的绑定持久化问题
+
+## 7. 账号语义与解绑卡片
+
+扫码页和入口页统一使用“绑定账号”语义。解绑不是扫码页里的第二种模式，也不是 Index 全屏页内的即时语音命令，而是 AIUI Tool Rendering 的对话流卡片：
+
+```text
+语音：“解绑账号”
+→ account_unbind_request（只提出确认请求，不执行副作用）
+→ pages/cards/account-unbind
+→ 用户点击“确认解绑”
+→ DELETE 当前 device binding
+→ 清除本机 token
+→ 卡片更新为“账号已解绑”
+```
+
+解绑卡片的确认按钮位于 `pages/cards/account-unbind.ink`。当前设备 JWT 可用于撤销自身 binding；如果服务端撤销不可达，卡片仍清除本机凭据，并明确提示服务端授权需在 Web 端确认。
+
+## 8. 已解决的绑定持久化问题
 
 之前的“无法保存绑定信息”实际由 QuickJS 缺少全局 `crypto` 触发，未必是设备存储失败。现在按 AIUI 官方模块方式导入 Crypto，并保留 UUID v4 降级生成；token bundle 写入后逐项回读校验，只有回读不一致才报告 `STORAGE_ERROR`。绑定成功后应看到：
 
@@ -188,7 +205,7 @@ WebP ArrayBuffer
 
 日志只打印 bindingId 与过期时间，不打印 token 内容。
 
-## 8. 回归检查清单
+## 9. 回归检查清单
 
 每次修改扫码绑定后至少验证：
 

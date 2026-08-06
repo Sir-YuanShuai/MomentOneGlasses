@@ -1,7 +1,7 @@
 <script def>
 {
-  "navigationBarTitleText": "绑定设备",
-  "description": "Guides a Rokid Glasses user through QR device binding, showing camera, validation, network, success, and recoverable error states.",
+  "navigationBarTitleText": "绑定账号",
+  "description": "Guides a Rokid Glasses user through QR account binding, showing camera, validation, network, success, and recoverable error states.",
   "schema": {
     "data": {
       "type": "object",
@@ -36,7 +36,7 @@ const ERROR_HINTS = {
   BINDING_CODE_USED: '二维码已使用，请在 Web 端重新生成',
   BINDING_CODE_INVALID: '这不是有效的一刻绑定二维码',
   INVALID_BINDING_CODE: '这不是有效的一刻绑定二维码',
-  DEVICE_ALREADY_BOUND: '此眼镜已绑定其他账号，请先在 Web 端撤销',
+  DEVICE_ALREADY_BOUND: '当前眼镜已绑定其他账号，请先解绑后重试',
   INVALID_REQUEST: '绑定请求无效，请重新生成二维码',
   RATE_LIMITED: '请求过于频繁，请稍后再试',
   REQUEST_TIMEOUT: '连接超时，请检查网络后重试',
@@ -431,7 +431,7 @@ export default {
     this.stopRecognition();
     this.binding = true;
     this.setData({
-      status: '二维码有效，正在绑定',
+      status: '二维码有效，正在绑定账号',
       hint: '请保持网络连接',
       phase: 'binding'
     });
@@ -441,7 +441,7 @@ export default {
 
     if (result.success) {
       this.setData({
-        status: '绑定成功',
+        status: '账号绑定成功',
         hint: '正在进入一刻',
         phase: 'success'
       });
@@ -482,7 +482,7 @@ export default {
   <view class="scan-screen">
     <view class="scan-card phase-{{phase}}">
       <view class="scan-header">
-        <text class="scan-title">绑定眼镜</text>
+        <text class="scan-title">绑定账号</text>
         <text class="scan-mode">{{modeLabel}}</text>
       </view>
       <view class="scan-body">

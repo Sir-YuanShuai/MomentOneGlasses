@@ -35,3 +35,28 @@ export function createMemoryAnswerCard({ question, answer, evidence }) {
     },
   };
 }
+
+
+export function createAccountUnbindCard({ accountLabel = '当前账号' } = {}) {
+  return {
+    route: 'pages/cards/account-unbind',
+    data: {
+      accountLabel: String(accountLabel || '当前账号'),
+      status: 'confirm',
+      message: '解绑后会清除本机账号凭据，需要重新扫码才能继续使用账号功能。',
+      remoteRevoked: false,
+    },
+  };
+}
+
+export function createAccountUnbindResultCard({ accountLabel = '当前账号', message, remoteRevoked = false } = {}) {
+  return {
+    route: 'pages/cards/account-unbind',
+    data: {
+      accountLabel: String(accountLabel || '当前账号'),
+      status: remoteRevoked ? 'success' : 'error',
+      message: String(message || ''),
+      remoteRevoked: Boolean(remoteRevoked),
+    },
+  };
+}

@@ -66,7 +66,7 @@ MCP 用于统一 Agent 可以发现和调用的能力：
 - iOS：SwiftUI；
 - Android：Compose；
 - Web：Web UI；
-- 对话流：只读结果卡片。
+- 对话流：只读结果卡片，以及账号解绑等带明确确认的安全 action 卡片。
 
 ## 3. 目标系统图
 

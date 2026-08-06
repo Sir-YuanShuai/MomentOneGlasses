@@ -1,6 +1,7 @@
 import wx from 'wx';
 import {
   BINDING_REQUEST_TIMEOUT_MS,
+  DEVICE_BINDINGS_URL,
   OAUTH_TOKEN_URL,
   QR_BINDING_GRANT_TYPE,
   REFRESH_GRANT_TYPE,
@@ -219,6 +220,40 @@ export function clearBinding() {
   removeStored(STORAGE_KEYS.REFRESH_TOKEN);
   removeStored(STORAGE_KEYS.ACCESS_TOKEN_EXPIRES_AT);
   removeStored(STORAGE_KEYS.REFRESH_TOKEN_EXPIRES_AT);
+}
+
+export async function unbindAccount() {
+  const bindingId = readStored(STORAGE_KEYS.BINDING_ID);
+  let accessToken = null;
+  let remoteRevoked = false;
+  let remoteError = '';
+
+  try {
+    accessToken = await getValidAccessToken();
+    if (bindingId && accessToken) {
+      const res = await request({
+        url: `${DEVICE_BINDINGS_URL}/${encodeURIComponent(bindingId)}`,
+        method: 'DELETE',
+        header: { authorization: `Bearer ${accessToken}` },
+        dataType: 'json'
+      });
+      remoteRevoked = res.statusCode === 204 || res.statusCode === 404 || res.statusCode === 409;
+      if (!remoteRevoked) remoteError = `HTTP_${res.statusCode || 0}`;
+    } else {
+      remoteError = 'MISSING_BINDING_CREDENTIALS';
+    }
+  } catch (error) {
+    remoteError = error && error.message ? error.message : 'NETWORK_ERROR';
+    console.warn('[moment-one:binding] remote account unbind failed', { message: remoteError });
+  } finally {
+    clearBinding();
+  }
+
+  console.info('[moment-one:binding] account credentials cleared', {
+    bindingId: typeof bindingId === 'string' ? bindingId : '',
+    remoteRevoked
+  });
+  return { success: true, remoteRevoked, remoteError };
 }
 
 export async function tryRefresh() {

@@ -105,6 +105,17 @@ export function resolveToolCall(call, utterance) {
     return { ok: true, intent: { type: 'moment.clear', source: 'language-model-tool' } };
   }
 
+  if (name === 'account_unbind_request') {
+    if (fallback.type !== 'account.unbind.request') return invalid('用户没有明确要求解绑账号');
+    return {
+      ok: true,
+      intent: {
+        type: 'account.unbind.request',
+        source: 'language-model-tool',
+      },
+    };
+  }
+
   if (name === 'config_get') {
     return {
       ok: true,

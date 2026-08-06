@@ -43,6 +43,10 @@ export function fallbackRecognizeIntent(input) {
     return baseIntent('help', { reason: '帮助或问候' });
   }
 
+  if (/(?:解绑|解除绑定|退出|移除|更换|切换).*(?:账号|账户)|(?:账号|账户).*(?:解绑|解除绑定|退出|移除|更换|切换)/.test(text)) {
+    return baseIntent('account.unbind.request', { confidence: 1, reason: '请求显示解绑账号确认卡片' });
+  }
+
   if (/即刻记忆|快速记录|自动拍照|拍照功能|功能设置|功能配置|当前配置|设置状态/.test(text)) {
     if (/关闭|关掉|不要|停用|禁用|取消/.test(text)) {
       return baseIntent('config.set', {

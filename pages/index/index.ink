@@ -32,7 +32,7 @@
         },
         "bindingGate": {
           "type": "boolean",
-          "description": "首次进入 index 时显示的设备绑定入口"
+          "description": "首次进入 index 时显示的账号绑定入口"
         },
         "softwareVersion": {
           "type": "string",
@@ -70,6 +70,7 @@ import {
 } from '../../services/record-media.js';
 import { CONTROL, resolveControl } from '../../services/controls.js';
 import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
+import { createAccountUnbindCard } from '../../services/card-presenter.js';
 
 const INSTANT_MEMORY_KEY = 'moment-one:instant-memory:v1';
 
@@ -127,8 +128,8 @@ export default {
     this.setData({
       bindingGate: !this.localMode,
       phase: this.localMode ? 'idle' : 'binding',
-      statusTitle: this.localMode ? '请直接说出你的意图' : '设备尚未绑定',
-      statusDetail: this.localMode ? '记录、查询、回顾和设置都会自动识别' : '按确认键打开扫码绑定，完成后自动进入',
+      statusTitle: this.localMode ? '请直接说出你的意图' : '尚未绑定账号',
+      statusDetail: this.localMode ? '记录、查询、回顾和设置都会自动识别' : '按确认键扫码绑定账号，完成后自动进入',
       softwareVersion: APP_VERSION,
       buildId: String(BUILD_ID).slice(0, 8)
     });
@@ -187,7 +188,7 @@ export default {
     if (this.suppressAutomaticEntry) {
       this.setData({
         phase: 'idle',
-        statusTitle: '设备绑定成功',
+        statusTitle: '账号绑定成功',
         statusDetail: '按确认键开始记录，或直接说出你的意图',
         photoStatus: '待命',
         sttLabel: '待命'
@@ -238,8 +239,8 @@ export default {
       this.setData({
         bindingGate: true,
         phase: 'binding',
-        statusTitle: '设备尚未绑定',
-        statusDetail: '按确认键打开扫码绑定，完成后自动进入'
+        statusTitle: '尚未绑定账号',
+        statusDetail: '按确认键扫码绑定账号，完成后自动进入'
       });
       return null;
     }
@@ -254,6 +255,16 @@ export default {
     // onShow 可能早于 token 检查完成；绑定成功后主动恢复 index 首屏流程。
     this.onShow();
     return token;
+  },
+
+  presentAccountUnbindCard() {
+    const card = createAccountUnbindCard();
+    console.info('[moment-one:card] account unbind confirmation requested', card);
+    // AIUI Tool Rendering hosts can render the returned card descriptor in the
+    // conversation flow. The local page runtime uses the same card route as a
+    // navigation fallback so the action remains testable in Craft and on-device.
+    wx.navigateTo({ url: '/pages/cards/account-unbind' });
+    return card;
   },
 
   openScanPage() {
@@ -566,6 +577,8 @@ export default {
       case 'config.get':
         this.showConfig(intent.configKey);
         return;
+      case 'account.unbind.request':
+        return this.presentAccountUnbindCard();
       case 'help':
         this.showHelp();
         return;
@@ -1466,7 +1479,7 @@ export default {
       <text class="binding-title">一刻</text>
       <text class="binding-status">{{statusTitle}}</text>
       <text class="binding-detail">{{statusDetail}}</text>
-      <text class="binding-action">确认：打开扫码</text>
+      <text class="binding-action">确认：扫码绑定账号</text>
       <text class="binding-version">v{{softwareVersion}} · build {{buildId}}</text>
     </view>
 

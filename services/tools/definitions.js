@@ -111,6 +111,17 @@ export const MOMENT_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'account_unbind_request',
+      description: '在 AIUI 对话流中显示“解绑当前账号”确认卡片。只能提出确认请求，绝不直接执行解绑；用户点击卡片确认后才撤销授权并清除本机凭据。',
+      parameters: {
+        type: 'object',
+        properties: {},
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'config_get',
       description: '查询一刻当前功能配置。',
       parameters: {
