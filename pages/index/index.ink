@@ -270,7 +270,9 @@ export default {
 
   // MCP Apps 入口：bookkeeping_summary → 对话流结果卡片（复用 card-presenter 模式）。
   // 不在沉浸式对话（LanguageModel 工具循环）中调用 MCP；由规则意图触发。
-  async presentMcpSummary(period) {
+  // MCP 记账统计 → 对话流结果卡片。summary 为空时用 period/year/month 实时拉取
+  // （LLM 已给出周期参数时直接复用其返回，避免二次调用）。
+  async presentMcpSummary(period, summary, args) {
     if (this.processing) return;
     this.processing = true;
     this.disposeRecognition();
@@ -286,10 +288,16 @@ export default {
     });
 
     try {
-      const client = createMcpClient();
-      const summary = await client.callTool('bookkeeping_summary', { period: String(period || 'month') });
+      let resolved = summary;
+      if (!resolved) {
+        const client = createMcpClient();
+        const callArgs = { period: String(period || 'month') };
+        if (args && Number.isFinite(Number(args.year))) callArgs.year = Number(args.year);
+        if (args && Number.isFinite(Number(args.month))) callArgs.month = Number(args.month);
+        resolved = await client.callTool('bookkeeping_summary', callArgs);
+      }
       this.processing = false;
-      const card = createMcpSummaryCard({ summary });
+      const card = createMcpSummaryCard({ summary: resolved });
       console.info('[moment-one:mcp] bookkeeping summary card prepared', {
         period: card.data.period,
         count: card.data.count
@@ -303,6 +311,67 @@ export default {
       this.setResult('记账统计不可用', describeMcpError(error), 'MCP 结果');
       return null;
     }
+  },
+
+  // LLM 已执行的远程 MCP 工具结果 → 对话流展示
+  presentMcpToolResult(intent) {
+    const toolName = String(intent.toolName || '');
+    const args = intent.toolArguments || {};
+
+    if (!intent.ok) {
+      const code = intent.errorCode;
+      this.setResult(
+        '记账操作未完成',
+        code === 'SCOPE_DENIED'
+          ? '当前账号缺少记账权限，请在 Web 端授权与设备管理中开启'
+          : (intent.errorMessage || '记账服务暂时不可用'),
+        'MCP 结果'
+      );
+      return;
+    }
+
+    if (toolName === 'bookkeeping_summary') {
+      this.presentMcpSummary(args.period || 'month', intent.result, args);
+      return;
+    }
+
+    if (toolName === 'bookkeeping_create') {
+      const result = intent.result || {};
+      const amount = Number(result.amount || 0);
+      const flow = result.flow === 'income' ? '收入' : '支出';
+      const category = String(result.category || '未分类');
+      const occurredAt = result.occurredAt ? String(result.occurredAt).slice(0, 16).replace('T', ' ') : '';
+      const title = result.title ? String(result.title) : `${flow} ${category}`;
+      const message = `${title} ¥${amount.toFixed(2)}${occurredAt ? ` · ${occurredAt}` : ''}，已记入服务端账本。`;
+      this.setResult('记账成功', message, 'MCP 记账');
+      this.speak(message);
+      return;
+    }
+
+    if (toolName === 'bookkeeping_list') {
+      const result = intent.result || {};
+      const items = Array.isArray(result.items) ? result.items : [];
+      const total = Number(result.total || items.length);
+      this.setResult(
+        total > 0 ? `找到 ${total} 笔账单` : '没有找到账单',
+        total > 0 ? '可问「这个月花了多少」查看统计，或说「打开记账详情」查看明细。' : '这个时间范围内没有记账记录。',
+        'MCP 明细',
+        total
+      );
+      return;
+    }
+
+    if (toolName === 'moments_get') {
+      const result = intent.result || {};
+      this.setResult(
+        result.title ? String(result.title) : 'Moment 详情',
+        result.occurredAt ? `时间：${String(result.occurredAt).slice(0, 16).replace('T', ' ')}` : '（无时间）',
+        'MCP 查询'
+      );
+      return;
+    }
+
+    this.setResult('操作完成', '服务端已处理该请求。', 'MCP 结果');
   },
 
   openScanPage() {
@@ -618,7 +687,14 @@ export default {
       case 'account.unbind.request':
         return this.presentAccountUnbindCard();
       case 'mcp.bookkeeping.summary':
-        this.presentMcpSummary(intent.period || 'month');
+        this.presentMcpSummary(
+          intent.period || 'month',
+          null,
+          { year: intent.year, month: intent.month }
+        );
+        return;
+      case 'mcp.tool.result':
+        this.presentMcpToolResult(intent);
         return;
       case 'help':
         this.showHelp();

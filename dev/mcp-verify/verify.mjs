@@ -213,6 +213,33 @@ async function scenarioRpcError() {
     outcome.threw ? `code=${outcome.code} toolCode=${outcome.toolCode}` : '未抛出错误');
 }
 
+async function scenarioPrompts() {
+  const mcp = client();
+  const { prompts } = await mcp.listPrompts();
+  const found = (prompts || []).find((p) => p.name === 'bookkeeping-assistant');
+  const fetched = await mcp.getPrompt('bookkeeping-assistant');
+  const ok = Boolean(found)
+    && fetched.text.length > 0
+    && fetched.text.includes('bookkeeping_create')
+    && fetched.text.includes('上个月');
+  report('S10 远程提示词 prompts/list + prompts/get', ok,
+    found ? `prompts=${prompts.length} 文本长度=${fetched.text.length}` : '未找到 bookkeeping-assistant');
+}
+
+async function scenarioDynamicTools() {
+  const { loadMcpToolDefinitions, loadMcpPrompt } = await import('../../services/mcp-tools.js');
+  const definitions = await loadMcpToolDefinitions({ endpointUrl: VERIFY_URL });
+  const names = definitions.map((tool) => tool.function.name);
+  const promptText = await loadMcpPrompt('bookkeeping-assistant', { endpointUrl: VERIFY_URL });
+  const ok = definitions.length >= 4
+    && names.includes('bookkeeping_create')
+    && names.includes('bookkeeping_summary')
+    && definitions.every((tool) => tool.function.parameters && tool.function.parameters.type === 'object')
+    && promptText.includes('bookkeeping_create');
+  report('S11 动态工具声明 LanguageModel 格式 + 远程提示词加载', ok,
+    `tools=${definitions.length} (${names.join('/')}) prompt=${promptText.length}字`);
+}
+
 async function main() {
   console.log(`MCP 验证目标: ${VERIFY_URL}`);
   console.log(`使用 token: ${VERIFY_TOKEN ? VERIFY_TOKEN.slice(0, 24) + '…' : '（空）'}\n`);
@@ -237,6 +264,8 @@ async function main() {
     await scenarioAuthRefresh();
     await scenarioSessionExpiry();
     await scenarioRpcError();
+    await scenarioPrompts();
+    await scenarioDynamicTools();
 
     const tokenStillValid = await getValidAccessToken();
     report('S9 绑定 token 仍有效', tokenStillValid === VERIFY_TOKEN, '');

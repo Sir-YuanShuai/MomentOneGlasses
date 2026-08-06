@@ -12,6 +12,8 @@ function baseIntent(type, fields = {}) {
     configKey: fields.configKey || '',
     configValue: fields.configValue ?? null,
     period: fields.period || 'month',
+    year: fields.year || 0,
+    month: fields.month || 0,
     reason: fields.reason || '',
     source: fields.source || 'rules',
   };
@@ -69,14 +71,42 @@ export function fallbackRecognizeIntent(input) {
     });
   }
 
-  // 记账统计（MCP Apps 入口）：明确的统计型措辞才命中，避免吞掉生活记录
-  if (/记账|账本|账目|收支|结余|账单|统计.{0,4}(账|开销|消费)|(账|开销|消费).{0,4}统计|花了多少|用了多少|支出.{0,4}(多少|统计|总结|汇总|情况)|收入.{0,4}(多少|统计|总结|汇总|情况)|消费记录|开销记录/.test(text)) {
-    const period = /本季度|本季|这个季度/.test(text) ? 'quarter'
-      : /今年|本年|年度/.test(text) ? 'year'
-      : 'month';
+  // 记账统计（MCP Apps 入口，离线兜底；在线时由 LLM + 远程工具自行决定参数）：
+  // 明确的统计型措辞才命中，避免吞掉生活记录；支持相对/具体周期换算。
+  if (/记账|账本|账目|收支|结余|账单|统计.{0,4}(账|开销|消费)|(账|开销|消费).{0,4}统计|花了多少|花了多少钱|用了多少|开销多少|支出.{0,4}(多少|统计|总结|汇总|情况)|收入.{0,4}(多少|统计|总结|汇总|情况)|消费记录|开销记录/.test(text)) {
+    const now = new Date();
+    let period = 'month';
+    let year = 0;
+    let month = 0;
+    const lastMonth = now.getMonth() === 0 ? 12 : now.getMonth();
+    const lastMonthYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+
+    if (/去年|上年|上一年/.test(text)) {
+      period = 'year';
+      year = now.getFullYear() - 1;
+    } else if (/今年|本年|年度/.test(text)) {
+      period = 'year';
+      year = now.getFullYear();
+    } else if (/上个月|上月|前一个月/.test(text)) {
+      period = 'month';
+      year = lastMonthYear;
+      month = lastMonth;
+    } else if (/本季度|本季|这个季度/.test(text)) {
+      period = 'quarter';
+    } else if (/(\d{4})年/.test(text)) {
+      period = 'year';
+      year = Number(RegExp.$1);
+    } else if (/(\d{1,2})月/.test(text)) {
+      period = 'month';
+      month = Number(RegExp.$1);
+      year = now.getFullYear();
+    }
+
     return baseIntent('mcp.bookkeeping.summary', {
       period,
-      reason: '请求记账统计（MCP bookkeeping_summary）',
+      year,
+      month,
+      reason: '请求记账统计（MCP bookkeeping_summary，离线兜底）',
     });
   }
 

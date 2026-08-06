@@ -323,3 +323,27 @@ bookkeeping_summary 输出（Server/MCP/Web 同源）
 
 **验证**：Server 单测（授权记录为事实源 / 存量回退）+ 全量 150 passed；
 眼镜端 e2e 10 场景全部 PASS；Web tsc/eslint/build 通过。
+
+### 12.7 远程工具与提示词记录（2026-08-06）：动态声明 + 远程记账提示词
+
+**背景**：记账/查账话术此前由本地规则与本地 moment 流程处理（导致「上个月/具体订单
+不触发正确参数」「记账显示成功但后端无记录」）。用户要求工具与提示词均由远程提供。
+
+**实现**：
+
+1. **Server**：注册 MCP 提示词 `bookkeeping-assistant`（prompts/list + prompts/get，
+   内容为记账指令与相对周期换算规则，存于 `app/modules/mcp/prompts/`）；
+2. **眼镜端**：
+   - `services/mcp-client.js` 增加 `listPrompts()` / `getPrompt()`；
+   - `services/mcp-tools.js`：tools/list → LanguageModel 工具定义（动态声明）；
+   - `services/agent-loop.js`：每次规划前拉取远程工具 + 提示词，拼入系统提示词
+     （含当前时间注入）；LLM 选中的 MCP 工具由 agent-loop 直接执行
+     `mcp-client.callTool` 并返回 `mcp.tool.result` 意图；
+   - `pages/index/index.ink`：`mcp.tool.result` 路由 —— bookkeeping_summary →
+     统计卡片（复用现有 UI）；bookkeeping_create → 记账成功（含时间/金额）；
+     bookkeeping_list → 明细条数；失败 → 错误码提示；
+   - `intent-router.js` 离线兜底增强：支持「上月/去年/某月/某年」周期换算。
+3. **工具与提示词均为远程**：眼镜端只做客户端适配，不内置记账规则。
+
+**验证**：Server 151 tests（含 prompts 单测）；眼镜端 e2e 新增 S10（prompts）/
+S11（动态工具声明）全部 PASS；Web 绑定回调修复（时间戳判定覆盖重绑场景）。

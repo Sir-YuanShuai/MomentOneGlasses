@@ -291,6 +291,26 @@ export function createMcpClient(options = {}) {
       return withSession('tools/call', { name, arguments: arguments_ || {} }).then(assertToolResult);
     },
 
+    // 远程提示词（工具/提示词均由远程提供，眼镜端只做客户端适配）
+    listPrompts() {
+      return withSession('prompts/list', {}).then((result) => ({
+        prompts: result && Array.isArray(result.prompts) ? result.prompts : []
+      }));
+    },
+
+    getPrompt(name) {
+      return withSession('prompts/get', { name }).then((result) => {
+        const messages = result && Array.isArray(result.messages) ? result.messages : [];
+        const text = messages
+          .map((message) => message && message.content && message.content.text
+            ? String(message.content.text)
+            : '')
+          .join('\n')
+          .trim();
+        return { name, text, messages };
+      });
+    },
+
     getSessionId() {
       return sessionId;
     },
