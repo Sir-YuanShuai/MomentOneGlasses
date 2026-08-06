@@ -4,7 +4,9 @@
     "pages/scan/scan",
     "pages/cards/moment-result",
     "pages/cards/memory-answer",
-    "pages/cards/account-unbind"
+    "pages/cards/account-unbind",
+    "pages/cards/mcp-summary",
+    "pages/mcp/detail"
   ],
   "window": {
     "navigationBarTitleText": "一刻 · Moment One",

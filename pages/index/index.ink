@@ -53,6 +53,7 @@ import wx from 'wx';
 import { SpeechRecognition } from 'speech';
 import { analyzeMoment, answerMemoryQuestion, MOMENT_PROMPT_VERSION } from '../../services/moment-ai.js';
 import { runAgentTurn } from '../../services/agent-loop.js';
+import { createMcpClient, describeMcpError } from '../../services/mcp-client.js';
 import {
   clearMoments,
   deleteMoment,
@@ -70,7 +71,7 @@ import {
 } from '../../services/record-media.js';
 import { CONTROL, resolveControl } from '../../services/controls.js';
 import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
-import { createAccountUnbindCard } from '../../services/card-presenter.js';
+import { createAccountUnbindCard, createMcpSummaryCard } from '../../services/card-presenter.js';
 
 const INSTANT_MEMORY_KEY = 'moment-one:instant-memory:v1';
 
@@ -265,6 +266,43 @@ export default {
     // navigation fallback so the action remains testable in Craft and on-device.
     wx.navigateTo({ url: '/pages/cards/account-unbind' });
     return card;
+  },
+
+  // MCP Apps 入口：bookkeeping_summary → 对话流结果卡片（复用 card-presenter 模式）。
+  // 不在沉浸式对话（LanguageModel 工具循环）中调用 MCP；由规则意图触发。
+  async presentMcpSummary(period) {
+    if (this.processing) return;
+    this.processing = true;
+    this.disposeRecognition();
+    this.setData({
+      phase: 'searching',
+      statusTitle: '正在查询记账统计',
+      statusDetail: '从服务端读取收支汇总',
+      transcript: '',
+      answer: '',
+      answerLabel: '记账统计',
+      evidenceCount: 0,
+      sttLabel: '已结束'
+    });
+
+    try {
+      const client = createMcpClient();
+      const summary = await client.callTool('bookkeeping_summary', { period: String(period || 'month') });
+      this.processing = false;
+      const card = createMcpSummaryCard({ summary });
+      console.info('[moment-one:mcp] bookkeeping summary card prepared', {
+        period: card.data.period,
+        count: card.data.count
+      });
+      const encoded = encodeURIComponent(JSON.stringify(card.data));
+      wx.navigateTo({ url: `/pages/cards/mcp-summary?data=${encoded}` });
+      return card;
+    } catch (error) {
+      console.error('[moment-one:mcp] bookkeeping summary failed:', error);
+      this.processing = false;
+      this.setResult('记账统计不可用', describeMcpError(error), 'MCP 结果');
+      return null;
+    }
   },
 
   openScanPage() {
@@ -579,6 +617,9 @@ export default {
         return;
       case 'account.unbind.request':
         return this.presentAccountUnbindCard();
+      case 'mcp.bookkeeping.summary':
+        this.presentMcpSummary(intent.period || 'month');
+        return;
       case 'help':
         this.showHelp();
         return;

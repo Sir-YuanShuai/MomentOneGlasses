@@ -34,3 +34,11 @@ export const TOKEN_DEFAULT_EXPIRES_IN_SECONDS = 60 * 60;
 
 // 绑定和刷新请求不应无限占用页面交互。
 export const BINDING_REQUEST_TIMEOUT_MS = 15_000;
+
+// MCP Apps 端点（Streamable HTTP，JSON-RPC 2.0 over POST /mcp）
+export const MCP_ENDPOINT_URL = SERVER_BASE_URL + '/mcp';
+// MCP 协议版本：与 Server SDK 协商一致（见 tests/api/test_mcp_server.py PROTOCOL_VERSION）
+export const MCP_PROTOCOL_VERSION = '2025-06-18';
+// MCP 请求超时：summary/趋势等多轮调用需要比绑定请求更宽的窗口
+//（app.json networkTimeout.request=60000 兜底）
+export const MCP_REQUEST_TIMEOUT_MS = 20_000;

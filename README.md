@@ -2,7 +2,7 @@
 
 **AI 替你记住人生。**
 
-Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接入设备扫码绑定代码路径（OAuth 2.1 QR Binding grant，仍需官方模拟器与真机验收）。跨平台 Memory Platform、Cloud Sync、MCP Server、Mobile/Web 和 MCP Apps 仅保留架构设计，当前版本不实现云端同步或远程 MCP。
+Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接入设备扫码绑定代码路径（OAuth 2.1 QR Binding grant，仍需官方模拟器与真机验收）。跨平台 Memory Platform、Cloud Sync、Mobile/Web 仅保留架构设计；**MCP Apps 客户端已实现**（复用 QR Binding token 调用 Server MCP 记账工具，见 `docs/roadmap/MCP_APPS_ADAPTATION.md`），云端同步不实现。
 
 ## 当前 MVP
 
@@ -17,6 +17,8 @@ Moment One 当前 MVP 是面向 Rokid AI Glasses 的个人记忆应用，已接�
 |---|---|
 | `pages/index/index` | 唯一入口；未绑定时显示绑定门，已绑定时进入本地 Moment 对话 |
 | `pages/scan/scan` | 扫码绑定页，自动打开相机扫码并换取 token |
+| `pages/cards/mcp-summary` | MCP 记账统计结果卡片（总结置顶 + 查看详情） |
+| `pages/mcp/detail` | MCP 记账详情全屏可滚动页（chart + 明细 + 操作按钮） |
 
 ## 项目结构
 

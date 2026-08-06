@@ -1,3 +1,5 @@
+import { formatPeriodLabel } from './format.js';
+
 function itemMeta(moment) {
   return [
     moment && moment.occurredAt ? String(moment.occurredAt).slice(0, 10) : '',
@@ -57,6 +59,32 @@ export function createAccountUnbindResultCard({ accountLabel = '当前账号', m
       status: remoteRevoked ? 'success' : 'error',
       message: String(message || ''),
       remoteRevoked: Boolean(remoteRevoked),
+    },
+  };
+}
+
+// MCP Apps 结果卡片：bookkeeping_summary 的 structuredContent 直接映射为卡片数据
+// （数据同源，不做本地二次聚合）。status='error' 时展示错误态。
+export function createMcpSummaryCard({ summary, message = '' } = {}) {
+  const s = summary || {};
+  const byCategory = Array.isArray(s.byCategory) ? s.byCategory : [];
+  const period = String(s.period || 'month');
+  const errorMessage = String(message || '');
+  return {
+    route: 'pages/cards/mcp-summary',
+    data: {
+      period,
+      periodLabel: formatPeriodLabel(period, s.year, s.month),
+      income: Number(s.income || 0),
+      expense: Number(s.expense || 0),
+      balance: Number(s.balance || 0),
+      count: Number(s.count || 0),
+      topCategories: byCategory.slice(0, 3).map((item) => ({
+        category: String((item && item.category) || '未分类'),
+        amount: Number((item && item.amount) || 0),
+      })),
+      status: errorMessage ? 'error' : 'ready',
+      message: errorMessage,
     },
   };
 }

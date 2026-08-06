@@ -49,11 +49,18 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 
 ## MVP 边界
 
-当前 MVP 已接入**设备扫码绑定代码路径**（通过 OAuth 2.1 QR Binding grant 换取 JWT），但只有完成官方模拟器和 Rokid 真机验收后才能标记为已验证，以下能力**不进入 AIX Runtime**，只在 `docs/` 维护设计：
+当前 MVP 已接入**设备扫码绑定代码路径**（通过 OAuth 2.1 QR Binding grant 换取 JWT），但只有完成官方模拟器和 Rokid 真机验收后才能标记为已验证。
+
+**已进入运行时（本阶段实现，待真机验收）**：
+
+- **MCP Apps（远程 MCP 客户端）**：`services/mcp-client.js`（手写 JSON-RPC 2.0）+ 记账结果卡片
+  `pages/cards/mcp-summary.ink` + 全屏详情页 `pages/mcp/detail.ink`，复用 QR Binding token 认证。
+  开发计划与验证记录见 `docs/roadmap/MCP_APPS_ADAPTATION.md`。
+
+**不进入 AIX Runtime，只在 `docs/` 维护设计**：
 
 - Cloud Sync（云端同步）
-- 远程 MCP（MCP Server 调用）
-- MCP Apps（第三方 Agent 入驻）
+- 远程 MCP Server 的宿主端能力（SSE 流式、工具动态声明给 LanguageModel、本地缓存/离线降级）
 
 修改代码时，不要为这些能力添加运行时实现。相关设计文档可更新，但不要在 `services/` 或 `pages/` 中引入对应逻辑。
 
@@ -69,6 +76,7 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
   - `services/controls.js`：按键映射，页面交互基础
   - `services/config.js`：Server 地址、OAuth 端点、存储 key 常量
   - `services/binding.js`：设备绑定服务（deviceId 管理、绑定状态、请求绑定、token 刷新、清除绑定、二维码解析）
+  - `services/mcp-client.js`：轻量 MCP 客户端（手写 JSON-RPC 2.0，复用 QR Binding token，401 刷新重试）
   - `services/image-decode.js`：AIX 内置的 PNG/JPEG → RGBA 解码器（由打包脚本生成）
   - `services/qr-fallback.js`：本地 QR 像素解码兜底（由打包脚本生成）
 
@@ -79,6 +87,8 @@ AIUI 官方相机链路是 `wx.createCameraContext().takePhoto()` 返回一次�
 ```
 pages/index/index.ink       # 唯一入口；未绑定时显示绑定门，已绑定时进入 Moment 对话
 pages/scan/scan.ink         # 扫码绑定页，自动打开相机扫码 → 调 requestBinding 换 token
+pages/cards/mcp-summary.ink # MCP Apps 记账结果卡片（总结置顶 + 查看详情）
+pages/mcp/detail.ink        # MCP Apps 全屏可滚动详情页（chart + 明细 + 操作按钮）
 ```
 
 ## 设备绑定流程
@@ -108,8 +118,8 @@ pages/scan/scan.ink         # 扫码绑定页，自动打开相机扫码 → 调
 ## 禁止事项
 
 - 禁止使用未在 AIUI 文档中确认的组件或 API
-- 禁止在 MVP 阶段引入 Cloud Sync、远程 MCP 或 MCP Apps 的运行时代码
+- 禁止在 MVP 阶段引入 Cloud Sync、远程 MCP Server 的宿主端能力（SSE 流式、工具动态声明给 LanguageModel、本地缓存/离线降级）
 - 禁止跳过 `npm run verify:mvp` 直接提交
 - 禁止提交超过 10MB 的 `.aix` 包
 - 禁止修改后不打包 `.aix` 就结束任务
-- 禁止在页面中直接操作 `wx.request`，网络请求必须通过 `services/binding.js` 封装
+- 禁止在页面中直接操作 `wx.request`，网络请求必须通过 `services/binding.js` / `services/mcp-client.js` 封装

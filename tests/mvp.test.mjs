@@ -69,6 +69,9 @@ function testIntentFallback() {
     ['开启快速记录', 'config.set'],
     ['即刻记忆现在开着吗', 'config.get'],
     ['你好', 'help'],
+    ['这个月花了多少', 'mcp.bookkeeping.summary'],
+    ['上季度收支', 'mcp.bookkeeping.summary'],
+    ['今年支出总结', 'mcp.bookkeeping.summary'],
     ['今天天气不错', 'moment.create'],
     ['刚在西湖边散步，阳光很好', 'moment.create'],
     ['这家面很好吃', 'moment.create'],
@@ -161,6 +164,8 @@ function testAppConfig() {
     'pages/cards/moment-result',
     'pages/cards/memory-answer',
     'pages/cards/account-unbind',
+    'pages/cards/mcp-summary',
+    'pages/mcp/detail',
   ]);
 
   appConfig.pages.forEach((route) => {
@@ -177,7 +182,8 @@ function testPagesVoiceFirst() {
   const inkPages = fs.readdirSync('pages', { recursive: true })
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
-    if (String(file).endsWith('cards/account-unbind.ink')) return;
+    // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP Apps 卡片与详情页（D4 决策）
+    if (['cards/account-unbind.ink', 'cards/mcp-summary.ink', 'mcp/detail.ink'].includes(String(file))) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
     assert.equal(
@@ -364,7 +370,8 @@ function testAppJsConfig() {
   const appSource = fs.readFileSync('app.js', 'utf8');
   assert.match(appSource, /repositoryMode:\s*'local'/);
   assert.match(appSource, /cloudSyncEnabled:\s*false/);
-  assert.match(appSource, /mcpEnabled:\s*false/);
+  assert.match(appSource, /mcpEnabled:\s*true/);
+  assert.match(appSource, /mcpAppsEnabled:\s*true/);
 }
 
 function testDocumentationLinks() {

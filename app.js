@@ -18,7 +18,7 @@ export default {
     timezone: 'Asia/Shanghai',
     repositoryMode: 'local',
     cloudSyncEnabled: false,
-    mcpEnabled: false,
-    mcpAppsEnabled: false
+    mcpEnabled: true,
+    mcpAppsEnabled: true
   }
 };

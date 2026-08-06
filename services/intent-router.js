@@ -11,6 +11,7 @@ function baseIntent(type, fields = {}) {
     changes: fields.changes || {},
     configKey: fields.configKey || '',
     configValue: fields.configValue ?? null,
+    period: fields.period || 'month',
     reason: fields.reason || '',
     source: fields.source || 'rules',
   };
@@ -65,6 +66,17 @@ export function fallbackRecognizeIntent(input) {
     return baseIntent('config.get', {
       configKey: /即刻记忆|快速记录|自动拍照|拍照功能/.test(text) ? 'instant_memory' : '',
       reason: '查询功能配置',
+    });
+  }
+
+  // 记账统计（MCP Apps 入口）：明确的统计型措辞才命中，避免吞掉生活记录
+  if (/记账|账本|账目|收支|结余|账单|统计.{0,4}(账|开销|消费)|(账|开销|消费).{0,4}统计|花了多少|用了多少|支出.{0,4}(多少|统计|总结|汇总|情况)|收入.{0,4}(多少|统计|总结|汇总|情况)|消费记录|开销记录/.test(text)) {
+    const period = /本季度|本季|这个季度/.test(text) ? 'quarter'
+      : /今年|本年|年度/.test(text) ? 'year'
+      : 'month';
+    return baseIntent('mcp.bookkeeping.summary', {
+      period,
+      reason: '请求记账统计（MCP bookkeeping_summary）',
     });
   }
 
