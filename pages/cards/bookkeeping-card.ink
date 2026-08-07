@@ -160,6 +160,7 @@ export default {
 
 <page>
   <view class="card-shell">
+    <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
     <view class="card-head" ink:if="{{ status === 'ready' && summary }}">
       <text class="eyebrow">记账统计 · {{ summary.periodLabel }}</text>
       <text class="count">{{ summary.count }} 笔</text>
@@ -205,7 +206,6 @@ export default {
       </view>
 
       <button class="action" bindtap="openDetail" ink:if="{{ summary }}">查看详情</button>
-      <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
     </block>
   </view>
 </page>
