@@ -36,6 +36,7 @@
 <script setup>
 import wx from 'wx';
 import { runAgentTurn } from '../../services/agent-loop.js';
+import { getValidAccessToken } from '../../services/binding.js';
 import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
@@ -66,7 +67,8 @@ export default {
     catsLine: '',
     resultTitle: '',
     resultMessage: '',
-    errorText: ''
+    errorText: '',
+    tokenProbe: ''
   },
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
@@ -80,6 +82,15 @@ export default {
   onLoad(query) {
     const q = query || {};
     console.log('[moment-one:card] onLoad query', JSON.stringify(q));
+    try {
+      getValidAccessToken().then((token) => {
+        this.setData({ tokenProbe: token ? '有' : '无' });
+      }).catch((error) => {
+        this.setData({ tokenProbe: '错误' });
+      });
+    } catch (error) {
+      this.setData({ tokenProbe: '异常' });
+    }
 
     // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
     if (this.looksLikeData(q)) {
@@ -244,21 +255,12 @@ export default {
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
     <view class="card-head">
-      <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
-      <text class="count">{{ count }} 笔</text>
+      <text class="eyebrow">记账助手</text>
     </view>
 
-    <text class="status-line" ink:if="{{ status === 'loading' }}">正在从记账服务获取数据…</text>
-    <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
-
-    <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
-    <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
-
-
-    <view ink:if="{{ resultTitle }}">
-      <text class="result-title">{{ resultTitle }}</text>
-      <text class="message">{{ resultMessage }}</text>
-    </view>
+    <text class="message">账单统计与明细已生成，点击查看详情进入完整界面。</text>
+    <text class="hint">（完整图表、明细与操作在「查看详情」中）</text>
+    <text class="token-line">凭据状态：{{ tokenProbe }}</text>
 
     <button class="action" bindtap="openDetail">查看详情</button>
   </view>
@@ -273,6 +275,18 @@ export default {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+.token-line {
+  color: var(--color-primary);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.hint {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .card-version {
