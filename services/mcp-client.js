@@ -8,7 +8,6 @@
 //
 // 不引入 @modelcontextprotocol/sdk（控制 AIX 体积 ≤10MB）。
 // 语法保持与现有 services 一致（QuickJS 兼容，无新依赖）。
-import wx from 'wx';
 import {
   MCP_ENDPOINT_URL,
   MCP_PROTOCOL_VERSION,
@@ -53,13 +52,62 @@ function createError(code, message, extra) {
   return error;
 }
 
+// 传输层用全局 fetch（AIUI 环境可用；宿主对话流卡片容器中 wx.request
+// 实测不可用而 fetch 可用——探针 N 网络 ok:200 即 fetch 结果）。
+// 返回结构与 wx.request 兼容：{ statusCode, data, header, errMsg }
 function request(options) {
   return new Promise((resolve, reject) => {
-    wx.request({
-      timeout: MCP_REQUEST_TIMEOUT_MS,
-      ...options,
-      success: resolve,
-      fail: reject
+    const header = {};
+    const source = options.header || {};
+    Object.keys(source).forEach((key) => {
+      header[key] = String(source[key]);
+    });
+    const contentType = header['content-type'] || header['Content-Type'] || '';
+    const isJson = /application\/json/.test(contentType);
+    const body = options.data === undefined || options.data === null
+      ? undefined
+      : (isJson ? JSON.stringify(options.data) : (typeof options.data === 'string' ? options.data : String(options.data)));
+
+    const timeoutMs = Number(options.timeout || MCP_REQUEST_TIMEOUT_MS);
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject({ errMsg: 'timeout' });
+    }, timeoutMs);
+
+    fetch(options.url, {
+      method: options.method || 'POST',
+      headers: header,
+      body: body === undefined ? undefined : body
+    }).then(async (response) => {
+      if (settled) return;
+      const text = await response.text();
+      let data = text;
+      if (options.dataType === 'json' || /json/.test(response.headers.get('content-type') || '')) {
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch (error) {
+          data = text;
+        }
+      }
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const responseHeader = {};
+      try {
+        response.headers.forEach((value, key) => {
+          responseHeader[key] = value;
+        });
+      } catch (error) {
+        // Headers 遍历失败时保留空对象（不影响 statusCode/data）
+      }
+      resolve({ statusCode: response.status, data, header: responseHeader, errMsg: 'ok' });
+    }).catch((error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject({ errMsg: error && error.message ? error.message : 'network error' });
     });
   });
 }

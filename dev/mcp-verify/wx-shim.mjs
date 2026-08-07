@@ -2,6 +2,45 @@
 // 实现 services/ 使用的 wx 子集：request / 同步存储。
 // 额外提供测试注入点：__seedStorage / __setRefreshHandler / __injectOnce。
 
+const nativeFetch = globalThis.fetch ? globalThis.fetch.bind(globalThis) : null;
+
+// fetch mock：把全局 fetch 接到同一请求核心（redirect/inject/refresh 处理一致）
+export function __enableFetchMock() {
+  if (!nativeFetch) return;
+  globalThis.fetch = (url, init = {}) => {
+    const header = init.headers || {};
+    const body = init.body;
+    let data = body;
+    const contentType = header['content-type'] || header['Content-Type'] || '';
+    if (body && typeof body === 'string' && /application\/json/.test(contentType)) {
+      try { data = JSON.parse(body); } catch (error) { data = body; }
+    }
+    return new Promise((resolve) => {
+      runRequest({
+        url: String(url),
+        method: init.method || 'GET',
+        header,
+        data,
+        dataType: 'json',
+        success: (res) => {
+          resolve({
+            status: res.statusCode,
+            headers: {
+              get: (name) => (res.header || {})[name] || null,
+              forEach: (cb) => Object.keys(res.header || {}).forEach((key) => cb(res.header[key], key))
+            },
+            text: () => Promise.resolve(
+              typeof res.data === 'string' ? res.data
+                : (res.data === null || res.data === undefined ? '' : JSON.stringify(res.data))
+            )
+          });
+        },
+        fail: (err) => { throw new Error((err && err.errMsg) || 'network'); }
+      });
+    });
+  };
+}
+
 const storage = new Map();
 const refreshHandler = { fn: null };
 const injectOnce = { items: [] };
@@ -81,7 +120,7 @@ async function runRequest(options) {
 
   let response;
   try {
-    response = await fetch(url, {
+    response = await nativeFetch(url, {
       method,
       headers,
       body: method === 'GET' ? undefined : body,

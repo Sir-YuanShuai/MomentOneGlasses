@@ -5,7 +5,7 @@
 //   MCP_VERIFY_TOKEN=<token> node --import ./dev/mcp-verify/register.mjs \
 //     ./dev/mcp-verify/chain-test.mjs
 import { runAgentTurn } from '../../services/agent-loop.js';
-import { __seedStorage, __redirectUrl } from './wx-shim.mjs';
+import { __seedStorage, __redirectUrl, __enableFetchMock } from './wx-shim.mjs';
 
 const VERIFY_URL = process.env.MCP_VERIFY_URL || 'http://127.0.0.1:8765/mcp';
 const VERIFY_TOKEN = process.env.MCP_VERIFY_TOKEN || '';
@@ -18,6 +18,8 @@ function report(name, ok, detail) {
 
 // 生产 MCP 端点 → standalone（agent-loop 内部用 config.js 的生产地址）
 __redirectUrl('https://moment-one-api.yuanshuai.fun/mcp', VERIFY_URL);
+// mcp-client 传输层已改用 fetch → mock 全局 fetch 接入同一请求核心
+__enableFetchMock();
 
 function seedToken() {
   __seedStorage({
