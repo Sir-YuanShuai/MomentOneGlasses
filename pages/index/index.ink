@@ -1,34 +1,6 @@
 <script def>
 {
-  "navigationBarTitleText": "一刻",
-  "description": "一刻记账助手应用入口（沉浸式页面）：用户直接打开应用时进入本页；页内语音入口 → 远程记账服务（bookkeeping_plan → create/summary/list）→ 结果卡片内嵌在对话区。记账/查账的对话流卡片请使用 bookkeeping-card 页面工具。",
-  "schema": {
-    "data": {
-      "type": "object",
-      "properties": {
-        "initialUtterance": {
-          "type": "string",
-          "description": "首句自然语言记账/查账指令（如：上个月花了多少 / 记一笔午餐 28.5 元），由页面直接走记账预路由"
-        },
-        "localDebug": {
-          "type": "string",
-          "description": "仅本地 Ink Web 调试使用的能力桥接开关"
-        },
-        "bindingGate": {
-          "type": "boolean",
-          "description": "首次进入 index 时显示的账号绑定入口"
-        },
-        "softwareVersion": {
-          "type": "string",
-          "description": "当前应用语义版本"
-        },
-        "buildId": {
-          "type": "string",
-          "description": "当前 AIX 构建短码"
-        }
-      }
-    }
-  }
+  "navigationBarTitleText": "一刻"
 }
 </script>
 
@@ -302,7 +274,10 @@ export default {
     this.processing = true;
     this.listeningRequested = false;
     this.disposeRecognition();
+    // 新一轮指令开始：收起上一轮的内嵌卡片，避免卡片一直显示
     this.setData({
+      'mcpCard.visible': false,
+      scrollIntoView: '',
       phase: 'classifying',
       statusTitle: '正在处理记账请求',
       statusDetail: '通过远程记账服务识别并执行',

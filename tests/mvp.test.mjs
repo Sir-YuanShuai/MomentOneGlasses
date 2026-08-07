@@ -155,6 +155,11 @@ function testIndexEntryRouting() {
   assert.match(source, /openMcpDetail/, 'index must open the full-screen detail from the embedded card');
   assert.doesNotMatch(source, /saveMoment/, 'index must not keep local moment storage code');
   assert.doesNotMatch(source, /memory-repository|memory-store|moment-ai/, 'index must not import local memory services');
+  // 沉浸式入口不声明页面工具（官方规范：只有对话式页面声明 description/schema）
+  const defBlock = source.slice(source.indexOf('<script def>'), source.indexOf('</script>'));
+  assert.doesNotMatch(defBlock, /"schema"|"description"/, 'index (immersive entry) must not declare a page tool');
+  // 新指令开始收起旧卡片，避免一直显示
+  assert.match(source, /'mcpCard.visible': false/, 'index must dismiss the embedded card on a new turn');
 }
 
 function testScanPage() {
