@@ -55,6 +55,37 @@ function createError(code, message, extra) {
 // 传输层用全局 fetch（AIUI 环境可用；宿主对话流卡片容器中 wx.request
 // 实测不可用而 fetch 可用——探针 N 网络 ok:200 即 fetch 结果）。
 // 返回结构与 wx.request 兼容：{ statusCode, data, header, errMsg }
+
+// AIUI 环境的 response.text() 会挂起（实测：请求 200 但客户端超时）。
+// 改用官方推荐的 response.body.getReader() + TextDecoder 流式读取。
+function readBodyText(response) {
+  return new Promise((resolve, reject) => {
+    const body = response && response.body;
+    const reader = body && typeof body.getReader === 'function' ? body.getReader() : null;
+    if (!reader) {
+      if (typeof response.text === 'function') {
+        response.text().then(resolve, reject);
+        return;
+      }
+      resolve('');
+      return;
+    }
+    const decoder = new TextDecoder('utf-8');
+    let text = '';
+    function pump() {
+      reader.read().then((result) => {
+        if (result.done) {
+          text += decoder.decode();
+          resolve(text);
+          return;
+        }
+        text += decoder.decode(result.value, { stream: true });
+        pump();
+      }).catch(reject);
+    }
+    pump();
+  });
+}
 function request(options) {
   return new Promise((resolve, reject) => {
     const header = {};
@@ -82,7 +113,7 @@ function request(options) {
       body: body === undefined ? undefined : body
     }).then(async (response) => {
       if (settled) return;
-      const text = await response.text();
+      const text = await readBodyText(response);
       let data = text;
       if (options.dataType === 'json' || /json/.test(response.headers.get('content-type') || '')) {
         try {
