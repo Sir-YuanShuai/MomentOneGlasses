@@ -20,6 +20,7 @@
 <script setup>
 import wx from 'wx';
 import { runAgentTurn } from '../../services/agent-loop.js';
+import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
 
@@ -27,6 +28,8 @@ export default {
   data: {
     status: 'loading', // loading | ready | error
     hostTarget: '_current',
+    softwareVersion: APP_VERSION,
+    buildId: String(BUILD_ID).slice(0, 8),
     summary: null,
     resultTitle: '',
     resultMessage: '',
@@ -191,6 +194,7 @@ export default {
       </view>
 
       <button class="action" bindtap="openDetail" ink:if="{{ summary }}">查看详情</button>
+      <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
     </block>
   </view>
 </page>
@@ -289,6 +293,13 @@ export default {
 
 .cat-amount {
   color: var(--color-primary);
+}
+
+.card-version {
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
 }
 
 .action {

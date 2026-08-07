@@ -686,6 +686,7 @@ export default {
         <text class="guide-example">“记一笔午餐 28.5 元” · “上个月花了多少”</text>
         <text class="guide-example">“看看这个月的账单” · “打开记账详情”</text>
         <text class="guide-meta">记账与统计均由远程记账服务完成</text>
+        <text class="shell-version">v{{ softwareVersion }} · build {{ buildId }}</text>
       </view>
     </view>
   </view>
@@ -1013,5 +1014,12 @@ export default {
   color: var(--color-text-secondary);
   font-size: 10px;
   line-height: 14px;
+}
+
+.shell-version {
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
 }
 </style>
