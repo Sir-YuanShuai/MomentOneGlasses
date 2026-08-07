@@ -40,25 +40,21 @@ import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
 
-// 初次渲染即完整卡片骨架（官方范式：参数传入 + 同步渲染；
-// utterance 兜底路径的异步结果通过 setData 填充）
-const EMPTY_SUMMARY = {
-  period: 'month',
-  periodLabel: '—',
-  incomeLabel: '+¥0.00',
-  expenseLabel: '-¥0.00',
-  balanceLabel: '+¥0.00',
-  count: 0,
-  topCategories: []
-};
-
 export default {
   data: {
     status: 'loading', // loading | ready | error
     hostTarget: '_current',
     softwareVersion: APP_VERSION,
     buildId: String(BUILD_ID).slice(0, 8),
-    summary: EMPTY_SUMMARY,
+    // 全部为顶层字段：宿主对话流卡片容器对嵌套路径（{{ summary.x }}）
+    // 的绑定可能不支持（实测显示 undefined），顶层字段渲染正常
+    period: 'month',
+    periodLabel: '—',
+    count: 0,
+    expenseLabel: '-¥0.00',
+    incomeLabel: '+¥0.00',
+    balanceLabel: '+¥0.00',
+    topCategories: [],
     summaryLine: '',
     catsLine: '',
     resultTitle: '',
@@ -114,7 +110,13 @@ export default {
     const cats = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
     this.setData({
       status: 'ready',
-      summary: card.data,
+      period: card.data.period,
+      periodLabel: card.data.periodLabel,
+      count: card.data.count,
+      expenseLabel: card.data.expenseLabel,
+      incomeLabel: card.data.incomeLabel,
+      balanceLabel: card.data.balanceLabel,
+      topCategories: cats,
       summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
       catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
     });
@@ -203,8 +205,8 @@ export default {
   },
 
   openDetail() {
-    if (!this.data.summary || !this.data.summary.period) return;
-    const url = `/pages/mcp/detail?period=${encodeURIComponent(this.data.summary.period || 'month')}`;
+    if (!this.data.period) return;
+    const url = `/pages/mcp/detail?period=${encodeURIComponent(this.data.period || 'month')}`;
     try {
       wx.navigateTo({ url });
     } catch (error) {
@@ -223,8 +225,8 @@ export default {
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
     <view class="card-head">
-      <text class="eyebrow">记账统计 · {{ summary.periodLabel }}</text>
-      <text class="count">{{ summary.count }} 笔</text>
+      <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
+      <text class="count">{{ count }} 笔</text>
     </view>
 
     <text class="status-line" ink:if="{{ status === 'loading' }}">正在查询记账…</text>
@@ -236,20 +238,20 @@ export default {
     <view class="metrics">
       <view class="metric">
         <text class="metric-label">支出</text>
-        <text class="metric-value">{{ summary.expenseLabel }}</text>
+        <text class="metric-value">{{ expenseLabel }}</text>
       </view>
       <view class="metric">
         <text class="metric-label">收入</text>
-        <text class="metric-value">{{ summary.incomeLabel }}</text>
+        <text class="metric-value">{{ incomeLabel }}</text>
       </view>
       <view class="metric">
         <text class="metric-label">结余</text>
-        <text class="metric-value">{{ summary.balanceLabel }}</text>
+        <text class="metric-value">{{ balanceLabel }}</text>
       </view>
     </view>
 
-    <view class="cats" ink:if="{{ summary.topCategories.length }}">
-      <view class="cat" ink:for="{{ summary.topCategories }}" ink:key="category">
+    <view class="cats" ink:if="{{ topCategories.length }}">
+      <view class="cat" ink:for="{{ topCategories }}" ink:key="category">
         <text class="cat-name">{{ item.category }}</text>
         <text class="cat-amount">{{ item.amountLabel }}</text>
       </view>
