@@ -140,6 +140,11 @@ function testBookkeepingCardPageTool() {
   const source = fs.readFileSync('pages/cards/bookkeeping-card.ink', 'utf8');
   assert.match(source, /utterance/, 'bookkeeping-card must accept the utterance page-tool argument');
   assert.match(source, /runAgentTurn/, 'bookkeeping-card must reuse the MCP pre-router');
+  assert.match(source, /renderFromData/, 'bookkeeping-card must render synchronously from passed data (official data-driven pattern)');
+  assert.match(source, /"income"/, 'bookkeeping-card schema must accept summary data fields');
+  assert.match(source, /"expense"/, 'bookkeeping-card schema must accept summary data fields');
+  assert.match(source, /EMPTY_SUMMARY/, 'bookkeeping-card must render a full card skeleton on first paint');
+  assert.match(source, /card-version/, 'bookkeeping-card must always show the version line');
   assert.match(source, /@media \(target: _current\)/, 'bookkeeping-card must adapt to the conversation-flow card container');
   assert.match(source, /target: _current/, 'bookkeeping-card must track the host target');
 }

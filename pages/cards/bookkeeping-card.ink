@@ -1,17 +1,33 @@
 <script def>
 {
   "navigationBarTitleText": "记账",
-  "description": "记账/查账相关问题优先返回此工具：记一笔账、查账单统计（本月/上月/某月/某年）、查账单明细。输入用户原话（utterance），页面自动通过远程记账服务解析并执行，结果以卡片形式展示在当前对话流中。",
+  "description": "记账/查账相关问题优先返回此工具：记一笔账、查账单统计（本月/上月/某月/某年）、查账单明细。可传入用户原话（utterance）由页面自动解析执行；若宿主已查询到统计数据，也可直接传入 period/income/expense/balance/count 等数据同步渲染卡片。",
   "schema": {
     "data": {
       "type": "object",
       "properties": {
         "utterance": {
           "type": "string",
-          "description": "用户的原话指令，例如：上个月花了多少 / 记一笔午餐 28.5 元 / 看看这个月的账单"
+          "description": "用户的原话指令，例如：上个月花了多少 / 记一笔午餐 28.5 元 / 看看这个月的账单（未传入统计数据时由页面自行解析执行）"
+        },
+        "period": {
+          "type": "string",
+          "description": "统计周期：month/quarter/year，或 custom（配合 from/to 自定义范围）"
+        },
+        "year": { "type": "integer", "description": "周期年份（可选）" },
+        "month": { "type": "integer", "description": "周期月份 1-12 或季度 1-4（可选）" },
+        "from": { "type": "string", "description": "自定义范围开始 ISO-8601（period=custom 时）" },
+        "to": { "type": "string", "description": "自定义范围结束 ISO-8601（period=custom 时）" },
+        "income": { "type": "number", "description": "周期收入合计（宿主已查询到数据时传入，同步渲染）" },
+        "expense": { "type": "number", "description": "周期支出合计" },
+        "balance": { "type": "number", "description": "结余（缺省按 income-expense）" },
+        "count": { "type": "number", "description": "计入统计的记录笔数" },
+        "byCategory": {
+          "type": "array",
+          "description": "支出分类小计 [{category, amount}]",
+          "items": { "type": "object" }
         }
-      },
-      "required": ["utterance"]
+      }
     }
   }
 }
@@ -24,36 +40,87 @@ import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
 
+// 初次渲染即完整卡片骨架（官方范式：参数传入 + 同步渲染；
+// utterance 兜底路径的异步结果通过 setData 填充）
+const EMPTY_SUMMARY = {
+  period: 'month',
+  periodLabel: '—',
+  incomeLabel: '+¥0.00',
+  expenseLabel: '-¥0.00',
+  balanceLabel: '+¥0.00',
+  count: 0,
+  topCategories: []
+};
+
 export default {
   data: {
     status: 'loading', // loading | ready | error
     hostTarget: '_current',
     softwareVersion: APP_VERSION,
     buildId: String(BUILD_ID).slice(0, 8),
+    summary: EMPTY_SUMMARY,
     summaryLine: '',
     catsLine: '',
-    summary: null,
     resultTitle: '',
     resultMessage: '',
-    replyText: '',
     errorText: ''
   },
 
   onLoad(query) {
-    this.setData({ status: 'loading' });
-    const utterance = query && query.utterance ? String(query.utterance).trim() : '';
-    if (!utterance) {
-      this.setData({
-        status: 'ready',
-        resultTitle: '记账助手',
-        resultMessage: '请告诉我记什么账或查什么账，例如「上个月花了多少」「记一笔午餐 28.5 元」。'
-      });
+    const q = query || {};
+
+    // 1) 数据传入模式（官方范式：宿主已查询到数据 → 同步渲染完整卡片）
+    const hasData = q.income !== undefined && q.income !== null
+      || q.expense !== undefined && q.expense !== null
+      || q.count !== undefined && q.count !== null;
+    if (hasData) {
+      this.renderFromData(q);
       return;
     }
-    this.run(utterance);
+
+    // 2) utterance 模式（页面自行解析执行，异步兜底）
+    const utterance = q.utterance ? String(q.utterance).trim() : '';
+    if (utterance) {
+      this.run(utterance);
+      return;
+    }
+
+    // 3) 无输入：提示话术（卡片骨架仍完整显示）
+    this.setData({
+      status: 'ready',
+      resultTitle: '记账助手',
+      resultMessage: '请告诉我记什么账或查什么账，例如「上个月花了多少」「记一笔午餐 28.5 元」。'
+    });
   },
 
-  // 复用预路由：远程 bookkeeping_plan → 执行远程工具 → 结果意图
+  // 数据传入 → 同步渲染（与 bookkeeping_summary structuredContent 同构）
+  renderFromData(q) {
+    const income = Number(q.income || 0);
+    const expense = Number(q.expense || 0);
+    const summaryInput = {
+      period: q.period || 'month',
+      income,
+      expense,
+      balance: q.balance !== undefined && q.balance !== null ? Number(q.balance) : income - expense,
+      count: Number(q.count || 0),
+      byCategory: Array.isArray(q.byCategory) ? q.byCategory : []
+    };
+    if (q.year !== undefined && q.year !== null) summaryInput.year = Number(q.year);
+    if (q.month !== undefined && q.month !== null) summaryInput.month = Number(q.month);
+    if (q.from) summaryInput.from = q.from;
+    if (q.to) summaryInput.to = q.to;
+
+    const card = createMcpSummaryCard({ summary: summaryInput });
+    const cats = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
+    this.setData({
+      status: 'ready',
+      summary: card.data,
+      summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
+      catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
+    });
+  },
+
+  // utterance 兜底：复用预路由（远程 bookkeeping_plan → 执行远程工具 → 结果意图）
   async run(utterance) {
     try {
       const plan = await runAgentTurn({ utterance });
@@ -97,14 +164,7 @@ export default {
     }
 
     if (toolName === 'bookkeeping_summary') {
-      const card = createMcpSummaryCard({ summary: intent.result });
-      const cats = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
-      this.setData({
-        status: 'ready',
-        summary: card.data,
-        summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
-        catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
-      });
+      this.renderFromData(intent.result);
       return;
     }
     if (toolName === 'bookkeeping_create') {
@@ -143,7 +203,7 @@ export default {
   },
 
   openDetail() {
-    if (!this.data.summary) return;
+    if (!this.data.summary || !this.data.summary.period) return;
     const url = `/pages/mcp/detail?period=${encodeURIComponent(this.data.summary.period || 'month')}`;
     try {
       wx.navigateTo({ url });
@@ -161,52 +221,46 @@ export default {
 <page>
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
-    <view class="card-head" ink:if="{{ status === 'ready' && summary }}">
+
+    <view class="card-head">
       <text class="eyebrow">记账统计 · {{ summary.periodLabel }}</text>
       <text class="count">{{ summary.count }} 笔</text>
     </view>
 
-    <block ink:if="{{ status === 'loading' }}">
-      <text class="message">正在查询记账…</text>
-    </block>
+    <text class="status-line" ink:if="{{ status === 'loading' }}">正在查询记账…</text>
+    <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
 
-    <block ink:elif="{{ status === 'error' }}">
-      <text class="message">{{ errorText }}</text>
-    </block>
-
-    <block ink:else>
-      <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
+    <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
     <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
 
-    <view class="metrics" ink:if="{{ summary }}">
-        <view class="metric">
-          <text class="metric-label">支出</text>
-          <text class="metric-value">{{ summary.expenseLabel }}</text>
-        </view>
-        <view class="metric">
-          <text class="metric-label">收入</text>
-          <text class="metric-value">{{ summary.incomeLabel }}</text>
-        </view>
-        <view class="metric">
-          <text class="metric-label">结余</text>
-          <text class="metric-value">{{ summary.balanceLabel }}</text>
-        </view>
+    <view class="metrics">
+      <view class="metric">
+        <text class="metric-label">支出</text>
+        <text class="metric-value">{{ summary.expenseLabel }}</text>
       </view>
-
-      <view class="cats" ink:if="{{ summary && summary.topCategories.length }}">
-        <view class="cat" ink:for="{{ summary.topCategories }}" ink:key="category">
-          <text class="cat-name">{{ item.category }}</text>
-          <text class="cat-amount">{{ item.amountLabel }}</text>
-        </view>
+      <view class="metric">
+        <text class="metric-label">收入</text>
+        <text class="metric-value">{{ summary.incomeLabel }}</text>
       </view>
-
-      <view ink:if="{{ resultTitle }}">
-        <text class="result-title">{{ resultTitle }}</text>
-        <text class="message">{{ resultMessage }}</text>
+      <view class="metric">
+        <text class="metric-label">结余</text>
+        <text class="metric-value">{{ summary.balanceLabel }}</text>
       </view>
+    </view>
 
-      <button class="action" bindtap="openDetail" ink:if="{{ summary }}">查看详情</button>
-    </block>
+    <view class="cats" ink:if="{{ summary.topCategories.length }}">
+      <view class="cat" ink:for="{{ summary.topCategories }}" ink:key="category">
+        <text class="cat-name">{{ item.category }}</text>
+        <text class="cat-amount">{{ item.amountLabel }}</text>
+      </view>
+    </view>
+
+    <view ink:if="{{ resultTitle }}">
+      <text class="result-title">{{ resultTitle }}</text>
+      <text class="message">{{ resultMessage }}</text>
+    </view>
+
+    <button class="action" bindtap="openDetail">查看详情</button>
   </view>
 </page>
 
@@ -219,6 +273,13 @@ export default {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-sm);
+}
+
+.card-version {
+  color: var(--color-text-secondary);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
 }
 
 .card-head {
@@ -239,6 +300,30 @@ export default {
   color: var(--color-text-secondary);
   font-size: 10px;
   line-height: 14px;
+}
+
+.status-line {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.error-line {
+  color: var(--color-primary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.summary-line {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.cats-line {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .message {
@@ -304,25 +389,6 @@ export default {
 
 .cat-amount {
   color: var(--color-primary);
-}
-
-.summary-line {
-  color: var(--color-text-primary);
-  font-size: 13px;
-  line-height: 19px;
-}
-
-.cats-line {
-  color: var(--color-text-secondary);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.card-version {
-  color: var(--color-text-secondary);
-  font-size: 9px;
-  line-height: 13px;
-  text-align: center;
 }
 
 .action {
