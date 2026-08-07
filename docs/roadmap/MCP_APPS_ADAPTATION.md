@@ -468,3 +468,35 @@ index 对话区**（对话式交互，不跳转；`mcpCard` 内嵌渲染：总�
 **验证**：verify:mvp 全绿；链路复用已验证的预路由（chain-test）。**真机待验证项**：
 宿主是否自动发现并调用 bookkeeping-card（平台发现机制），卡片在系统对话流的渲染
 与 `@media (target: _current)` 表现。
+
+### 12.11 终局复盘（2026-08-07）：对话式数据显示 — 完整排查链、根因与防踩坑记录
+
+**最终结果**：沉浸式与对话式均显示正确数据。修复组合 = **传输双通道（wx.request 优先 + fetch fallback）** + **utterance 优先调用链**。
+
+#### 三个核心坑（务必不要再踩）
+
+**坑 1：AIUI 的 fetch 是 `/runtime-fetch` 代理，只回传 body、丢失响应头**
+- 现象：请求 200、body 正常，但 `response.headers` 里拿不到 `mcp-session-id` → MCP initialize 报「MCP 端点未返回会话标识」→ 链路断裂。
+- 影响：**任何依赖响应头的协议（MCP Streamable HTTP 会话机制）都不能用 fetch 作为主传输**。
+- 对策：`wx.request` 为主传输（返回完整响应头）；fetch 仅作 fallback。若未来必须用 fetch，需协议侧规避（如把会话标识放入 body）。
+
+**坑 2：AIUI fetch 实现的两处缺陷**
+- `response.text()` **挂起**（实测：请求 200 但客户端永远等不到）→ 必须用 `response.body.getReader() + TextDecoder` 流式读取；
+- `Headers.forEach` 不可用 → 用 `entries()` / `get()` 兜底收集响应头（`collectHeaders` 三级降级）。
+
+**坑 3：宿主调用页面工具按 schema 编造参数，原「宿主数据优先」逻辑渲染编造值、忽略 utterance**
+- 现象：卡片显示 0/编造值、**Server 零请求**、审计无记录——因为 onLoad 走了「宿主传入数据」分支（宿主模型按 schema 填了 income/expense/count 等参数，即使无数据也填默认/编造值），utterance 从未被使用。
+- 对策：**utterance 优先**——宿主传了用户原话就让页面自行解析执行（真实数据）；宿主传入数据仅在无话术时作兜底渲染。
+
+#### 排查方法论（本次验证有效，可复用）
+
+| 手段 | 作用 | 位置 |
+|---|---|---|
+| Server 请求日志中间件（`mcp_request_methods`：JSON-RPC method + client UA） | 区分「请求未到达」vs「到达但失败」vs「到达且成功」；识别周期探测客户端 | MomentOneServer `app/application.py`（临时诊断，稳定后可移除） |
+| `audit_events` 审计（`mcp.tool.*` 的 user_id/resultCount） | 确认工具调用是否发生、返回多少数据 | 生产 DB 查询 |
+| 页面 console 日志（onLoad query / run start / plan / summary result） | 页面执行路径与数据值 | 调试器控制台 |
+| 探针原则：**用简单短字符串**（如 `hd:1`/`utt:y`），避免 JSON 特殊字符（`{}`/引号）导致宿主卡片渲染整体空白 | 在宿主渲染敏感的环境安全探针 | 页面临时诊断 |
+
+#### 关键时序教训
+- 宿主对话流卡片环境的渲染/执行行为**不稳定且不可推断**（探针行曾导致整卡空白、onLoad 是否执行曾反复）；结论必须以 **Server 侧日志/审计**为准，不要以卡片 UI 表现为准。
+- 每次实机测试要**立即**对照 Server 日志（周期 `prompts/list` 客户端会刷屏，需按时间窗口精确过滤）。

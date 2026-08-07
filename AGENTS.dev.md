@@ -118,3 +118,11 @@ pages/cards/account-unbind.ink  # 解绑账号确认卡片
 - 禁止提交超过 10MB 的 `.aix` 包
 - 禁止修改后不打包 `.aix` 就结束任务
 - 禁止在页面中直接操作 `wx.request`，网络请求必须通过 `services/binding.js` / `services/mcp-client.js` 封装
+
+## AIUI 网络环境坑（务必先读）
+
+见 `docs/roadmap/MCP_APPS_ADAPTATION.md §12.11` 完整复盘。核心三条：
+
+1. **fetch 是 `/runtime-fetch` 代理，丢失响应头**——依赖响应头的协议（MCP 会话）必须用 `wx.request` 主传输，fetch 仅 fallback；
+2. **`response.text()` 会挂起**——必须用 `response.body.getReader() + TextDecoder` 流式读取；`Headers.forEach` 不可用需 `entries/get` 兜底；
+3. **宿主调用页面工具会按 schema 编造参数**——调用链必须 **utterance 优先**（宿主传话术就让页面自取真实数据），宿主数据仅兜底。
