@@ -58,9 +58,9 @@ export default {
     utterance: '',
     periodLabel: '—',
     count: 0,
-    expenseLabel: '0.00',
-    incomeLabel: '0.00',
-    balanceLabel: '0.00',
+    expenseLabel: '--',
+    incomeLabel: '--',
+    balanceLabel: '--',
     topCategories: [],
     summaryLine: '',
     catsLine: '',
@@ -236,7 +236,7 @@ export default {
       <text class="count">{{ count }} 笔</text>
     </view>
 
-    <text class="status-line" ink:if="{{ status === 'loading' }}">正在查询记账…</text>
+    <text class="status-line" ink:if="{{ status === 'loading' }}">正在从记账服务获取数据…</text>
     <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
 
     <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
