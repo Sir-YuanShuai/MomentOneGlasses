@@ -30,6 +30,8 @@ export default {
     hostTarget: '_current',
     softwareVersion: APP_VERSION,
     buildId: String(BUILD_ID).slice(0, 8),
+    summaryLine: '',
+    catsLine: '',
     summary: null,
     resultTitle: '',
     resultMessage: '',
@@ -96,7 +98,13 @@ export default {
 
     if (toolName === 'bookkeeping_summary') {
       const card = createMcpSummaryCard({ summary: intent.result });
-      this.setData({ status: 'ready', summary: card.data });
+      const cats = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
+      this.setData({
+        status: 'ready',
+        summary: card.data,
+        summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
+        catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
+      });
       return;
     }
     if (toolName === 'bookkeeping_create') {
@@ -166,7 +174,10 @@ export default {
     </block>
 
     <block ink:else>
-      <view class="metrics" ink:if="{{ summary }}">
+      <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
+    <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
+
+    <view class="metrics" ink:if="{{ summary }}">
         <view class="metric">
           <text class="metric-label">支出</text>
           <text class="metric-value">{{ summary.expenseLabel }}</text>
@@ -293,6 +304,18 @@ export default {
 
 .cat-amount {
   color: var(--color-primary);
+}
+
+.summary-line {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.cats-line {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  line-height: 16px;
 }
 
 .card-version {
