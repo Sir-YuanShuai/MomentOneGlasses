@@ -79,6 +79,7 @@ export default {
 
   onLoad(query) {
     const q = query || {};
+    console.log('[moment-one:card] onLoad query', JSON.stringify(q));
 
     // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
     if (this.looksLikeData(q)) {
@@ -115,6 +116,7 @@ export default {
     if (q.to) summaryInput.to = q.to;
 
     const card = createMcpSummaryCard({ summary: summaryInput });
+    console.log('[moment-one:card] renderFromData', JSON.stringify(card.data));
     const cats = Array.isArray(card.data.topCategories) ? card.data.topCategories : [];
     this.setData({
       status: 'ready',
@@ -134,8 +136,10 @@ export default {
   // 宿主卡片环境网络有间歇抖动，失败重试一次
   async run(utterance, attempt) {
     const round = Number(attempt) || 1;
+    console.log('[moment-one:card] run start', JSON.stringify({ utterance, round }));
     try {
       const plan = await runAgentTurn({ utterance });
+      console.log('[moment-one:card] run plan', JSON.stringify(plan && plan.intent ? plan.intent : plan));
       this.renderIntent(plan.intent);
     } catch (error) {
       console.error('[moment-one:card] bookkeeping failed:', error);
@@ -180,6 +184,7 @@ export default {
     }
 
     if (toolName === 'bookkeeping_summary') {
+      console.log('[moment-one:card] summary result', JSON.stringify(intent.result));
       this.renderFromData(intent.result);
       return;
     }
