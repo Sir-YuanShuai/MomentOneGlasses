@@ -57,13 +57,10 @@ export default {
     byCategory: [],
     utterance: '',
     periodLabel: '—',
-    count: 0,
     expenseLabel: '--',
     incomeLabel: '--',
     balanceLabel: '--',
     topCategories: [],
-    summaryLine: '',
-    catsLine: '',
     resultTitle: '',
     resultMessage: '',
     errorText: ''
@@ -79,8 +76,6 @@ export default {
 
   onLoad(query) {
     const q = query || {};
-    console.log('[moment-one:card] onLoad query', JSON.stringify(q));
-
     // 1) utterance 优先：宿主传了用户原话 → 页面自行解析执行（真实数据）
     const utterance = q.utterance ? String(q.utterance).trim() : '';
     if (utterance) {
@@ -126,9 +121,7 @@ export default {
       expenseLabel: card.data.expenseLabel,
       incomeLabel: card.data.incomeLabel,
       balanceLabel: card.data.balanceLabel,
-      topCategories: cats,
-      summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
-      catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
+      topCategories: cats
     });
   },
 
@@ -251,8 +244,27 @@ export default {
     <text class="status-line" ink:if="{{ status === 'loading' }}">正在从记账服务获取数据…</text>
     <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
 
-    <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
-    <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
+    <view class="metrics">
+      <view class="metric">
+        <text class="metric-label">支出</text>
+        <text class="metric-value">{{ expenseLabel }}</text>
+      </view>
+      <view class="metric">
+        <text class="metric-label">收入</text>
+        <text class="metric-value">{{ incomeLabel }}</text>
+      </view>
+      <view class="metric">
+        <text class="metric-label">结余</text>
+        <text class="metric-value">{{ balanceLabel }}</text>
+      </view>
+    </view>
+
+    <view class="cats" ink:if="{{ topCategories.length }}">
+      <view class="cat" ink:for="{{ topCategories }}" ink:key="category">
+        <text class="cat-name">{{ item.category }}</text>
+        <text class="cat-amount">{{ item.amountLabel }}</text>
+      </view>
+    </view>
 
     <view ink:if="{{ resultTitle }}">
       <text class="result-title">{{ resultTitle }}</text>
@@ -307,6 +319,58 @@ export default {
   line-height: 14px;
 }
 
+.metrics {
+  display: flex;
+  flex-direction: row;
+  gap: var(--spacing-sm);
+}
+
+.metric {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--spacing-sm);
+  border: var(--border-width-thin) solid var(--border-color-muted);
+  border-radius: var(--radius-md);
+}
+
+.metric-label {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.metric-value {
+  font-size: 14px;
+  line-height: 19px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.cats {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cat {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.cat-name {
+  color: var(--color-text-secondary);
+}
+
+.cat-amount {
+  color: var(--color-primary);
+}
+
 .status-line {
   color: var(--color-text-secondary);
   font-size: 12px;
@@ -358,6 +422,9 @@ export default {
   .card-shell {
     max-height: 320rpx;
     overflow: hidden;
+  }
+  .cats {
+    display: none;
   }
 }
 </style>
