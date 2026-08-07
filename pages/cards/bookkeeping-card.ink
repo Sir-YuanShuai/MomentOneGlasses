@@ -140,8 +140,8 @@ export default {
     resultTitle: '',
     resultMessage: '',
     errorText: '',
-    a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' })
-  },
+    a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' }),
+    queryProbe: ''
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
   looksLikeData(q) {
@@ -153,6 +153,11 @@ export default {
 
   onLoad(query) {
     const q = query || {};
+    try {
+      this.setData({ queryProbe: JSON.stringify(q) });
+    } catch (error) {
+      this.setData({ queryProbe: 'parse-error' });
+    }
 
     // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
     if (this.looksLikeData(q)) {
@@ -313,6 +318,8 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
+    <text class="probe-line">Q={{ queryProbe }}</text>
+
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
@@ -362,6 +369,13 @@ export default {
   font-size: 9px;
   line-height: 13px;
   text-align: center;
+}
+
+.probe-line {
+  color: var(--color-primary);
+  font-size: 9px;
+  line-height: 13px;
+  word-break: break-all;
 }
 
 .card-head {
