@@ -48,8 +48,10 @@ export default {
     buildId: String(BUILD_ID).slice(0, 8),
     // 全部为顶层字段：宿主对话流卡片容器对嵌套路径（{{ summary.x }}）
     // 的绑定可能不支持（实测显示 undefined），顶层字段渲染正常
-    period: 'month',
+    period: '',
     periodLabel: '—',
+    probeLoaded: 'pending',
+    nestedTest: { value: 'N1' },
     count: 0,
     expenseLabel: '-¥0.00',
     incomeLabel: '+¥0.00',
@@ -63,6 +65,7 @@ export default {
   },
 
   onLoad(query) {
+    this.setData({ probeLoaded: 'loaded' });
     const q = query || {};
 
     // 1) 数据传入模式（官方范式：宿主已查询到数据 → 同步渲染完整卡片）
@@ -224,6 +227,14 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
+    <view class="probe">
+      <text class="probe-line">P1静态</text>
+      <text class="probe-line">P2顶层={{ expenseLabel }}</text>
+      <text class="probe-line">P3嵌套={{ nestedTest.value }}</text>
+      <text class="probe-line">P4onLoad={{ probeLoaded }}</text>
+      <text class="probe-line">P5注入={{ period }}</text>
+    </view>
+
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
@@ -282,6 +293,21 @@ export default {
   font-size: 9px;
   line-height: 13px;
   text-align: center;
+}
+
+.probe {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 1px dashed var(--border-color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.probe-line {
+  color: var(--color-primary);
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .card-head {
