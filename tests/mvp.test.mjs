@@ -143,7 +143,7 @@ function testBookkeepingCardPageTool() {
   assert.match(source, /renderFromData/, 'bookkeeping-card must render synchronously from passed data (official data-driven pattern)');
   assert.match(source, /"income"/, 'bookkeeping-card schema must accept summary data fields');
   assert.match(source, /"expense"/, 'bookkeeping-card schema must accept summary data fields');
-  assert.match(source, /expenseLabel: '-¥0.00'/, 'bookkeeping-card must seed top-level metric labels (no undefined)');
+  assert.match(source, /expenseLabel: '0.00'/, 'bookkeeping-card must seed plain-number metric labels (avoid ¥/sign issues in host card)');
   assert.doesNotMatch(source.replace(/<script[\s\S]*?<\/script>/g, ''), /\{\{ summary\./, 'bookkeeping-card template must not use nested {{ summary.x }} bindings (host card container limitation)');
   assert.match(source, /card-version/, 'bookkeeping-card must always show the version line');
   assert.match(source, /@media \(target: _current\)/, 'bookkeeping-card must adapt to the conversation-flow card container');
