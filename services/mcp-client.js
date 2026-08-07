@@ -8,6 +8,7 @@
 //
 // 不引入 @modelcontextprotocol/sdk（控制 AIX 体积 ≤10MB）。
 // 语法保持与现有 services 一致（QuickJS 兼容，无新依赖）。
+import wx from 'wx';
 import {
   MCP_ENDPOINT_URL,
   MCP_PROTOCOL_VERSION,
@@ -52,9 +53,10 @@ function createError(code, message, extra) {
   return error;
 }
 
-// 传输层用全局 fetch（AIUI 环境可用；宿主对话流卡片容器中 wx.request
-// 实测不可用而 fetch 可用——探针 N 网络 ok:200 即 fetch 结果）。
-// 返回结构与 wx.request 兼容：{ statusCode, data, header, errMsg }
+// 传输层：wx.request 优先（返回完整响应头，mcp-session-id 必需；
+// AIUI 的 fetch 是 /runtime-fetch 代理，只回传 body、丢失响应头，
+// 导致 initialize 拿不到会话标识）。fetch 仅作 fallback。
+// 返回结构统一：{ statusCode, data, header, errMsg }
 
 // AIUI 环境的 response.text() 会挂起（实测：请求 200 但客户端超时）。
 // 改用官方推荐的 response.body.getReader() + TextDecoder 流式读取。
@@ -123,7 +125,7 @@ function readBodyText(response) {
     pump();
   });
 }
-function request(options) {
+function fetchFallbackRequest(options) {
   return new Promise((resolve, reject) => {
     const header = {};
     const source = options.header || {};
@@ -169,6 +171,36 @@ function request(options) {
       clearTimeout(timer);
       reject({ errMsg: error && error.message ? error.message : 'network error' });
     });
+  });
+}
+
+function request(options) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+    try {
+      wx.request({
+        timeout: Number(options.timeout || MCP_REQUEST_TIMEOUT_MS),
+        ...options,
+        success: (res) => finish(resolve, res),
+        fail: (error) => {
+          // wx.request 不可用/失败 → fetch fallback（对话流卡片等环境）
+          fetchFallbackRequest(options).then(
+            (res) => finish(resolve, res),
+            (err) => finish(reject, err)
+          );
+        }
+      });
+    } catch (error) {
+      fetchFallbackRequest(options).then(
+        (res) => finish(resolve, res),
+        (err) => finish(reject, err)
+      );
+    }
   });
 }
 
