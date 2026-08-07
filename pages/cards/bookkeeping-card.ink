@@ -68,7 +68,9 @@ export default {
     resultTitle: '',
     resultMessage: '',
     errorText: '',
-    tokenProbe: ''
+    tokenProbe: '',
+    diag1: '',
+    diag2: ''
   },
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
@@ -82,6 +84,12 @@ export default {
   onLoad(query) {
     const q = query || {};
     console.log('[moment-one:card] onLoad query', JSON.stringify(q));
+    try {
+      const has = this.looksLikeData(q);
+      this.setData({ diag1: 'per:' + String(q.period || '-') + ' utt:' + (q.utterance ? 'y' : 'n') + ' hd:' + (has ? 1 : 0) + ' ic:' + String(q.count || 0) });
+    } catch (error) {
+      this.setData({ diag1: 'onload-err' });
+    }
     try {
       getValidAccessToken().then((token) => {
         this.setData({ tokenProbe: token ? '有' : '无' });
@@ -148,9 +156,11 @@ export default {
   async run(utterance, attempt) {
     const round = Number(attempt) || 1;
     console.log('[moment-one:card] run start', JSON.stringify({ utterance, round }));
+    this.setData({ diag2: 'run:' + String(utterance).slice(0, 4) + ' r' + round });
     try {
       const plan = await runAgentTurn({ utterance });
       console.log('[moment-one:card] run plan', JSON.stringify(plan && plan.intent ? plan.intent : plan));
+      this.setData({ diag2: 'plan:' + String(plan && plan.intent ? plan.intent.type : 'none').slice(0, 14) });
       this.renderIntent(plan.intent);
     } catch (error) {
       console.error('[moment-one:card] bookkeeping failed:', error);
@@ -160,7 +170,8 @@ export default {
       }
       this.setData({
         status: 'error',
-        errorText: (error && error.message) || '记账服务暂时不可用'
+        errorText: (error && error.message) || '记账服务暂时不可用',
+        diag2: 'throw:' + String((error && error.code) || (error && error.message) || '').slice(0, 14)
       });
     }
   },
@@ -189,13 +200,15 @@ export default {
         status: 'error',
         errorText: intent.errorCode === 'SCOPE_DENIED'
           ? '当前账号缺少记账权限，请在 Web 端授权与设备管理中开启'
-          : (intent.errorMessage || '记账服务暂时不可用')
+          : (intent.errorMessage || '记账服务暂时不可用'),
+        diag2: 'err:' + String(intent.errorCode || '').slice(0, 14)
       });
       return;
     }
 
     if (toolName === 'bookkeeping_summary') {
       console.log('[moment-one:card] summary result', JSON.stringify(intent.result));
+      this.setData({ diag2: 'sum:' + String(intent.result && intent.result.expense) + ' c:' + String(intent.result && intent.result.count) });
       this.renderFromData(intent.result);
       return;
     }
@@ -253,7 +266,8 @@ export default {
 <page>
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
-    <text class="token-line">凭据状态：{{ tokenProbe }}</text>
+    <text class="token-line">凭据状态：{{ tokenProbe }} · {{ diag1 }}</text>
+    <text class="token-line">{{ diag2 }}</text>
 
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
