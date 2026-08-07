@@ -441,3 +441,30 @@ index 对话区**（对话式交互，不跳转；`mcpCard` 内嵌渲染：总�
    不再有独立卡片页被宿主当作工具。
 
 **验证**：verify:mvp 全绿（4 页面）；整链路 e2e 通过；AIX 0.3.15 重新打包。
+
+### 12.11 系统对话式实现（2026-08-06）：bookkeeping-card 页面工具
+
+**需求**：与系统（宿主对话流）之间的对话式——在系统聊天流说「查看上个月的账单」，
+卡片直接出现在系统对话流，不进入 index 沉浸式页面。
+
+**官方机制**（first-chat.md + target.md）：页面 `<script def>` 的 `description` +
+`schema.data` 把页面声明成**页面工具**，宿主模型在聊天流调用 → 页面承载到对话流
+卡片容器（`target=_current`）；需要完整交互时切 `_blank`（全屏）。
+
+**实现**：
+
+- 新增 `pages/cards/bookkeeping-card.ink`（页面工具）：
+  - `schema.data` **只接收 `utterance`（用户原话）**——宿主模型不需要懂记账参数，
+    只需把原话转发；动态 MCP 工具栈（plan → create/summary/list）全部封装在页面
+    内部（复用 `runAgentTurn` 预路由），**动态工具数量/参数不影响宿主**；
+  - `description` 明确触发条件（记一笔/查统计/查明细）；
+  - 渲染：统计卡片（总结置顶 + 分类 + 「查看详情」）、记账成功、明细条数、远程提示；
+  - `@media (target: _current)` 紧凑卡片（对话流内），「查看详情」→ `_blank` 全屏详情页；
+  - `onTargetChanged` 感知承载位。
+- `index.ink` 的 description 明确为**应用入口**（与对话工具区分）。
+- `AGENTS.md` 按官方规范重写（Meta / System Prompts / Capabilities），系统指令明确
+  「记账/查账优先调用 bookkeeping-card 页面工具」。
+
+**验证**：verify:mvp 全绿；链路复用已验证的预路由（chain-test）。**真机待验证项**：
+宿主是否自动发现并调用 bookkeeping-card（平台发现机制），卡片在系统对话流的渲染
+与 `@media (target: _current)` 表现。

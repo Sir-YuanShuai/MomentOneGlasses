@@ -106,6 +106,7 @@ function testAppConfig() {
     'pages/index/index',
     'pages/scan/scan',
     'pages/cards/account-unbind',
+    'pages/cards/bookkeeping-card',
     'pages/mcp/detail',
   ]);
 
@@ -124,7 +125,7 @@ function testPagesVoiceFirst() {
     .filter((file) => String(file).endsWith('.ink'));
   inkPages.forEach((file) => {
     // 交互式页面豁免（按钮/绑事件）：账号安全卡 + MCP 卡片与详情页 + 入口页内嵌卡片
-    if (['cards/account-unbind.ink', 'mcp/detail.ink', 'index/index.ink'].includes(String(file))) return;
+    if (['cards/account-unbind.ink', 'cards/bookkeeping-card.ink', 'mcp/detail.ink', 'index/index.ink'].includes(String(file))) return;
     const pagePath = path.join('pages', String(file));
     const source = fs.readFileSync(pagePath, 'utf8');
     assert.equal(
@@ -133,6 +134,14 @@ function testPagesVoiceFirst() {
       `${pagePath} must be voice-first without buttons`,
     );
   });
+}
+
+function testBookkeepingCardPageTool() {
+  const source = fs.readFileSync('pages/cards/bookkeeping-card.ink', 'utf8');
+  assert.match(source, /utterance/, 'bookkeeping-card must accept the utterance page-tool argument');
+  assert.match(source, /runAgentTurn/, 'bookkeeping-card must reuse the MCP pre-router');
+  assert.match(source, /@media \(target: _current\)/, 'bookkeeping-card must adapt to the conversation-flow card container');
+  assert.match(source, /target: _current/, 'bookkeeping-card must track the host target');
 }
 
 function testIndexEntryRouting() {
@@ -256,6 +265,7 @@ testMcpCardContract();
 testFormatHelpers();
 testBindingParsing();
 testAppConfig();
+testBookkeepingCardPageTool();
 testPagesVoiceFirst();
 testIndexEntryRouting();
 testScanPage();

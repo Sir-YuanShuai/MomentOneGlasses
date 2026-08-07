@@ -1,7 +1,7 @@
 <script def>
 {
   "navigationBarTitleText": "一刻",
-  "description": "记账助手入口（沉浸式对话页）：宿主对话流可传入 initialUtterance 自然语言记账/查账指令调起本页；页内语音入口 → 远程记账服务（bookkeeping_plan → create/summary/list）→ 结果卡片内嵌在对话区，点「查看详情」进全屏详情页。",
+  "description": "一刻记账助手应用入口（沉浸式页面）：用户直接打开应用时进入本页；页内语音入口 → 远程记账服务（bookkeeping_plan → create/summary/list）→ 结果卡片内嵌在对话区。记账/查账的对话流卡片请使用 bookkeeping-card 页面工具。",
   "schema": {
     "data": {
       "type": "object",
