@@ -100,20 +100,20 @@ export default {
       this.setData({ tokenProbe: '异常' });
     }
 
-    // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
-    if (this.looksLikeData(q)) {
-      this.renderFromData(q);
-      return;
-    }
-
-    // 2) utterance 模式：页面自行解析执行（异步 setData 已证实生效）
+    // 1) utterance 优先：宿主传了用户原话 → 页面自行解析执行（真实数据）
     const utterance = q.utterance ? String(q.utterance).trim() : '';
     if (utterance) {
       this.run(utterance);
       return;
     }
 
-    // 3) 宿主只传了空/0 参数：默认查询本月（记账语境，异步取数）
+    // 2) 宿主传入数据（非零）→ 同步渲染（宿主已查询到真实数据时）
+    if (this.looksLikeData(q)) {
+      this.renderFromData(q);
+      return;
+    }
+
+    // 3) 无话术且无数据：默认查询本月（记账语境，异步取数）
     this.run('这个月花了多少');
   },
 
