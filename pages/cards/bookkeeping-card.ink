@@ -140,49 +140,35 @@ export default {
     resultTitle: '',
     resultMessage: '',
     errorText: '',
-    timerProbe: 'pending',
-    netProbe: 'pending',
     a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' })
   },
 
-  onLoad(query) {
-    // 探针1：定时器更新（不依赖网络）——区分「宿主不支持 onLoad 后更新」vs「网络失败」
-    setTimeout(() => {
-      this.setData({ timerProbe: 'after-2s' });
-    }, 2000);
-    // 探针2：网络可达性（healthz）
-    try {
-      fetch('https://moment-one-api.yuanshuai.fun/healthz')
-        .then((response) => this.setData({ netProbe: 'ok:' + response.status }))
-        .catch((error) => this.setData({ netProbe: 'fail' }));
-    } catch (error) {
-      this.setData({ netProbe: 'throw' });
-    }
+  // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
+  looksLikeData(q) {
+    const income = Number(q.income || 0);
+    const expense = Number(q.expense || 0);
+    const count = Number(q.count || 0);
+    return income !== 0 || expense !== 0 || count > 0;
+  },
 
+  onLoad(query) {
     const q = query || {};
 
-    // 1) 数据传入模式（官方范式：宿主已查询到数据 → 同步渲染完整卡片）
-    const hasData = q.income !== undefined && q.income !== null
-      || q.expense !== undefined && q.expense !== null
-      || q.count !== undefined && q.count !== null;
-    if (hasData) {
+    // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
+    if (this.looksLikeData(q)) {
       this.renderFromData(q);
       return;
     }
 
-    // 2) utterance 模式（页面自行解析执行，异步兜底）
+    // 2) utterance 模式：页面自行解析执行（异步 setData 已证实生效）
     const utterance = q.utterance ? String(q.utterance).trim() : '';
     if (utterance) {
       this.run(utterance);
       return;
     }
 
-    // 3) 无输入：提示话术（卡片骨架仍完整显示）
-    this.setData({
-      status: 'ready',
-      resultTitle: '记账助手',
-      resultMessage: '请告诉我记什么账或查什么账，例如「上个月花了多少」「记一笔午餐 28.5 元」。'
-    });
+    // 3) 宿主只传了空/0 参数：默认查询本月（记账语境，异步取数）
+    this.run('这个月花了多少');
   },
 
   // 数据传入 → 同步渲染（与 bookkeeping_summary structuredContent 同构）
@@ -220,12 +206,18 @@ export default {
   },
 
   // utterance 兜底：复用预路由（远程 bookkeeping_plan → 执行远程工具 → 结果意图）
-  async run(utterance) {
+  // 宿主卡片环境网络有间歇抖动，失败重试一次
+  async run(utterance, attempt) {
+    const round = Number(attempt) || 1;
     try {
       const plan = await runAgentTurn({ utterance });
       this.renderIntent(plan.intent);
     } catch (error) {
       console.error('[moment-one:card] bookkeeping failed:', error);
+      if (round < 2) {
+        setTimeout(() => this.run(utterance, round + 1), 800);
+        return;
+      }
       this.setData({
         status: 'error',
         errorText: (error && error.message) || '记账服务暂时不可用'
@@ -321,11 +313,6 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
-    <view class="probe">
-      <text class="probe-line">T定时={{ timerProbe }}</text>
-      <text class="probe-line">N网络={{ netProbe }}</text>
-    </view>
-
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
@@ -375,19 +362,6 @@ export default {
   font-size: 9px;
   line-height: 13px;
   text-align: center;
-}
-
-.probe {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  padding: 2px 4px;
-}
-
-.probe-line {
-  color: var(--color-primary);
-  font-size: 9px;
-  line-height: 13px;
 }
 
 .card-head {
