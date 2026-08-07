@@ -1,4 +1,4 @@
-import { formatPeriodLabel, formatRangeLabel } from './format.js';
+import { formatAmount, formatMoney, formatPeriodLabel, formatRangeLabel } from './format.js';
 
 function itemMeta(moment) {
   return [
@@ -82,9 +82,13 @@ export function createMcpSummaryCard({ summary, message = '' } = {}) {
       expense: Number(s.expense || 0),
       balance: Number(s.balance || 0),
       count: Number(s.count || 0),
+      incomeLabel: `+${formatAmount(Number(s.income || 0))}`,
+      expenseLabel: `-${formatAmount(Number(s.expense || 0))}`,
+      balanceLabel: (Number(s.balance || 0) < 0 ? '-' : '+') + formatAmount(Math.abs(Number(s.balance || 0))),
       topCategories: byCategory.slice(0, 3).map((item) => ({
         category: String((item && item.category) || '未分类'),
         amount: Number((item && item.amount) || 0),
+        amountLabel: formatMoney(Number((item && item.amount) || 0)),
       })),
       status: errorMessage ? 'error' : 'ready',
       message: errorMessage,
