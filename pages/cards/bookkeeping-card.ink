@@ -141,7 +141,8 @@ export default {
     resultMessage: '',
     errorText: '',
     a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' }),
-    queryProbe: ''
+    queryProbe: '',
+    resultProbe: ''
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
   looksLikeData(q) {
@@ -208,6 +209,11 @@ export default {
       catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
     });
     renderA2ui(this, { expense: card.data.expenseLabel, income: card.data.incomeLabel, balance: card.data.balanceLabel });
+    try {
+      this.setData({ resultProbe: JSON.stringify({ expense: card.data.expense, income: card.data.income, count: card.data.count }) });
+    } catch (error) {
+      this.setData({ resultProbe: 'serialize-error' });
+    }
   },
 
   // utterance 兜底：复用预路由（远程 bookkeeping_plan → 执行远程工具 → 结果意图）
@@ -225,7 +231,8 @@ export default {
       }
       this.setData({
         status: 'error',
-        errorText: (error && error.message) || '记账服务暂时不可用'
+        errorText: (error && error.message) || '记账服务暂时不可用',
+        resultProbe: 'throw:' + String((error && error.code) || (error && error.message) || '')
       });
     }
   },
@@ -254,7 +261,8 @@ export default {
         status: 'error',
         errorText: intent.errorCode === 'SCOPE_DENIED'
           ? '当前账号缺少记账权限，请在 Web 端授权与设备管理中开启'
-          : (intent.errorMessage || '记账服务暂时不可用')
+          : (intent.errorMessage || '记账服务暂时不可用'),
+        resultProbe: 'error:' + String(intent.errorCode || '')
       });
       return;
     }
@@ -319,6 +327,7 @@ export default {
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
     <text class="probe-line">Q={{ queryProbe }}</text>
+    <text class="probe-line">R={{ resultProbe }}</text>
 
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
