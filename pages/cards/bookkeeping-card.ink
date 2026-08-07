@@ -140,9 +140,7 @@ export default {
     resultTitle: '',
     resultMessage: '',
     errorText: '',
-    a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' }),
-    queryProbe: '',
-    resultProbe: ''
+    a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' })
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
   looksLikeData(q) {
@@ -154,11 +152,6 @@ export default {
 
   onLoad(query) {
     const q = query || {};
-    try {
-      this.setData({ queryProbe: JSON.stringify(q) });
-    } catch (error) {
-      this.setData({ queryProbe: 'parse-error' });
-    }
 
     // 1) 数据传入模式：宿主已查询到真实数据（非零）→ 同步渲染
     if (this.looksLikeData(q)) {
@@ -209,11 +202,6 @@ export default {
       catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
     });
     renderA2ui(this, { expense: card.data.expenseLabel, income: card.data.incomeLabel, balance: card.data.balanceLabel });
-    try {
-      this.setData({ resultProbe: JSON.stringify({ expense: card.data.expense, income: card.data.income, count: card.data.count }) });
-    } catch (error) {
-      this.setData({ resultProbe: 'serialize-error' });
-    }
   },
 
   // utterance 兜底：复用预路由（远程 bookkeeping_plan → 执行远程工具 → 结果意图）
@@ -231,8 +219,7 @@ export default {
       }
       this.setData({
         status: 'error',
-        errorText: (error && error.message) || '记账服务暂时不可用',
-        resultProbe: 'throw:' + String((error && error.code) || (error && error.message) || '')
+        errorText: (error && error.message) || '记账服务暂时不可用'
       });
     }
   },
@@ -261,8 +248,7 @@ export default {
         status: 'error',
         errorText: intent.errorCode === 'SCOPE_DENIED'
           ? '当前账号缺少记账权限，请在 Web 端授权与设备管理中开启'
-          : (intent.errorMessage || '记账服务暂时不可用'),
-        resultProbe: 'error:' + String(intent.errorCode || '')
+          : (intent.errorMessage || '记账服务暂时不可用')
       });
       return;
     }
@@ -326,9 +312,6 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
-    <text class="probe-line">Q={{ queryProbe }}</text>
-    <text class="probe-line">R={{ resultProbe }}</text>
-
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
@@ -378,13 +361,6 @@ export default {
   font-size: 9px;
   line-height: 13px;
   text-align: center;
-}
-
-.probe-line {
-  color: var(--color-primary);
-  font-size: 9px;
-  line-height: 13px;
-  word-break: break-all;
 }
 
 .card-head {
