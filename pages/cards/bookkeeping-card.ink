@@ -40,79 +40,6 @@ import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
 
-// A2UI 指标卡 commands（宿主对话流卡片容器对页面 data 异步刷新支持有限，
-// a2ui 是官方「AI 对话交互容器」，指标区改用 a2ui 动态渲染）
-function buildMetricCommands(values) {
-  const expense = String(values.expense || '--');
-  const income = String(values.income || '--');
-  const balance = String(values.balance || '--');
-  const metric = (id, label, valueKey) => ({
-    id,
-    type: 'view',
-    props: {
-      style: 'flex: 1; display: flex; flex-direction: column; align-items: center; padding: 8px; border: 1px solid rgba(0, 255, 127, 0.35); border-radius: 8px;'
-    },
-    children: [`${id}-label`, `${id}-value`]
-  });
-  const metricLabel = (id, text) => ({
-    id: `${id}-label`,
-    type: 'text',
-    props: { content: text, style: 'font-size: 10px; color: rgba(0, 255, 127, 0.6);' }
-  });
-  const metricValue = (id, valueKey) => ({
-    id: `${id}-value`,
-    type: 'text',
-    props: { content: `{{ ${valueKey} }}`, style: 'font-size: 14px; font-weight: bold; color: #00FF7F;' }
-  });
-  return JSON.stringify([
-    { type: 'createSurface', surfaceId: 'bk', containerId: 'root' },
-    {
-      version: 'v0.9',
-      updateDataModel: {
-        surfaceId: 'bk',
-        path: '/',
-        value: { expense, income, balance }
-      }
-    },
-    {
-      type: 'updateComponents',
-      surfaceId: 'bk',
-      components: [
-        {
-          id: 'root',
-          type: 'view',
-          props: { style: 'display: flex; flex-direction: row; gap: 8px; width: 100%;' },
-          children: ['m-expense', 'm-income', 'm-balance']
-        },
-        { ...metric('m-expense', '支出', 'expense'), children: ['m-expense-label', 'm-expense-value'] },
-        { ...metric('m-income', '收入', 'income'), children: ['m-income-label', 'm-income-value'] },
-        { ...metric('m-balance', '结余', 'balance'), children: ['m-balance-label', 'm-balance-value'] },
-        metricLabel('m-expense', '支出'),
-        metricValue('m-expense', 'expense'),
-        metricLabel('m-income', '收入'),
-        metricValue('m-income', 'income'),
-        metricLabel('m-balance', '结余'),
-        metricValue('m-balance', 'balance')
-      ]
-    }
-  ]);
-}
-
-function renderA2ui(instance, values) {
-  const ctx = a2ui.createA2UIContext('bk-ui');
-  const commands = buildMetricCommands(values);
-  if (ctx) {
-    try {
-      ctx.write(commands);
-    } catch (error) {
-      console.warn('[moment-one:a2ui] write failed, fallback to commands attribute', error);
-      instance.setData({ a2uiCommands: commands });
-    }
-  } else {
-    instance.setData({ a2uiCommands: commands });
-  }
-}
-
 export default {
   data: {
     status: 'loading', // loading | ready | error
@@ -139,8 +66,8 @@ export default {
     catsLine: '',
     resultTitle: '',
     resultMessage: '',
-    errorText: '',
-    a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' })
+    errorText: ''
+  },
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
   looksLikeData(q) {
@@ -201,7 +128,6 @@ export default {
       summaryLine: `支出 ${card.data.expenseLabel} · 收入 ${card.data.incomeLabel} · 结余 ${card.data.balanceLabel} · ${card.data.count} 笔`,
       catsLine: cats.map((item) => `${item.category} ${item.amountLabel}`).join(' · ')
     });
-    renderA2ui(this, { expense: card.data.expenseLabel, income: card.data.incomeLabel, balance: card.data.balanceLabel });
   },
 
   // utterance 兜底：复用预路由（远程 bookkeeping_plan → 执行远程工具 → 结果意图）
@@ -323,18 +249,6 @@ export default {
     <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
     <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
 
-    <a2ui
-      id="bk-ui"
-      commands="{{ a2uiCommands }}"
-      style="display: flex; flex-direction: column; width: 100%;"
-    ></a2ui>
-
-    <view class="cats" ink:if="{{ topCategories.length }}">
-      <view class="cat" ink:for="{{ topCategories }}" ink:key="category">
-        <text class="cat-name">{{ item.category }}</text>
-        <text class="cat-amount">{{ item.amountLabel }}</text>
-      </view>
-    </view>
 
     <view ink:if="{{ resultTitle }}">
       <text class="result-title">{{ resultTitle }}</text>
@@ -420,58 +334,6 @@ export default {
   font-weight: 700;
 }
 
-.metrics {
-  display: flex;
-  flex-direction: row;
-  gap: var(--spacing-sm);
-}
-
-.metric {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: var(--spacing-sm);
-  border: var(--border-width-thin) solid var(--border-color-muted);
-  border-radius: var(--radius-md);
-}
-
-.metric-label {
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  line-height: 14px;
-}
-
-.metric-value {
-  font-size: 14px;
-  line-height: 19px;
-  font-weight: 700;
-  color: var(--color-primary);
-}
-
-.cats {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.cat {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.cat-name {
-  color: var(--color-text-secondary);
-}
-
-.cat-amount {
-  color: var(--color-primary);
-}
-
 .action {
   min-height: 34px;
   border-radius: var(--radius-md);
@@ -486,9 +348,6 @@ export default {
   .card-shell {
     max-height: 320rpx;
     overflow: hidden;
-  }
-  .cats {
-    display: none;
   }
 }
 </style>

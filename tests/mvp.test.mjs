@@ -144,7 +144,7 @@ function testBookkeepingCardPageTool() {
   assert.match(source, /"income"/, 'bookkeeping-card schema must accept summary data fields');
   assert.match(source, /"expense"/, 'bookkeeping-card schema must accept summary data fields');
   assert.match(source, /expenseLabel: '--'/, 'bookkeeping-card must seed plain placeholder labels (no misleading 0)');
-  assert.match(source, /a2ui|createA2UIContext/, 'bookkeeping-card must render metrics via the a2ui container');
+  assert.doesNotMatch(source, /<a2ui/, 'bookkeeping-card must not depend on a2ui container (host card renders text-lines reliably)');
   assert.doesNotMatch(source.replace(/<script[\s\S]*?<\/script>/g, ''), /\{\{ summary\./, 'bookkeeping-card template must not use nested {{ summary.x }} bindings (host card container limitation)');
   assert.match(source, /card-version/, 'bookkeeping-card must always show the version line');
   assert.match(source, /@media \(target: _current\)/, 'bookkeeping-card must adapt to the conversation-flow card container');
