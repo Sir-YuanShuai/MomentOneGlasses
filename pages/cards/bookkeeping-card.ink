@@ -253,14 +253,23 @@ export default {
 <page>
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
+    <text class="token-line">凭据状态：{{ tokenProbe }}</text>
 
     <view class="card-head">
-      <text class="eyebrow">记账助手</text>
+      <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
+      <text class="count">{{ count }} 笔</text>
     </view>
 
-    <text class="message">账单统计与明细已生成，点击查看详情进入完整界面。</text>
-    <text class="hint">（完整图表、明细与操作在「查看详情」中）</text>
-    <text class="token-line">凭据状态：{{ tokenProbe }}</text>
+    <text class="status-line" ink:if="{{ status === 'loading' }}">正在从记账服务获取数据…</text>
+    <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
+
+    <text class="summary-line" ink:if="{{ summaryLine }}">{{ summaryLine }}</text>
+    <text class="cats-line" ink:if="{{ catsLine }}">{{ catsLine }}</text>
+
+    <view ink:if="{{ resultTitle }}">
+      <text class="result-title">{{ resultTitle }}</text>
+      <text class="message">{{ resultMessage }}</text>
+    </view>
 
     <button class="action" bindtap="openDetail">查看详情</button>
   </view>
