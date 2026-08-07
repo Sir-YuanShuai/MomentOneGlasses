@@ -61,6 +61,9 @@ export function formatPeriodLabel(period, year, month) {
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
   const p = String(period || 'month');
+  if (p === 'custom') {
+    return '自定义范围';
+  }
   if (p === 'year') {
     const y = Number(year) || currentYear;
     return y === currentYear ? '本年' : `${y}年`;
@@ -74,6 +77,25 @@ export function formatPeriodLabel(period, year, month) {
   const m = Number(month) || currentMonth;
   if (y === currentYear && m === currentMonth) return '本月';
   return y === currentYear ? `${m}月` : `${y}年${m}月`;
+}
+
+// 自定义范围标签：当天范围 → 今日/昨日；否则起止日期（本地时区）
+export function formatRangeLabel(fromIso, toIso) {
+  const from = new Date(fromIso);
+  const to = new Date(toIso);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return '自定义范围';
+  const dayMs = 24 * 60 * 60 * 1000;
+  const fromDay = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const toDay = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  if (toDay - fromDay === dayMs) {
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const dayStart = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+    const diff = Math.round((todayStart - dayStart) / dayMs);
+    if (diff === 0) return '今日';
+    if (diff === 1) return '昨日';
+  }
+  return `${from.getMonth() + 1}月${from.getDate()}日 ~ ${to.getMonth() + 1}月${to.getDate()}日`;
 }
 
 export function formatFullTime(isoString) {

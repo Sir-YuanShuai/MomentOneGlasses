@@ -1,4 +1,4 @@
-import { formatPeriodLabel } from './format.js';
+import { formatPeriodLabel, formatRangeLabel } from './format.js';
 
 function itemMeta(moment) {
   return [
@@ -75,7 +75,9 @@ export function createMcpSummaryCard({ summary, message = '' } = {}) {
   return {
     data: {
       period,
-      periodLabel: formatPeriodLabel(period, s.year, s.month),
+      periodLabel: period === 'custom'
+        ? formatRangeLabel(s.from, s.to)
+        : formatPeriodLabel(period, s.year, s.month),
       income: Number(s.income || 0),
       expense: Number(s.expense || 0),
       balance: Number(s.balance || 0),

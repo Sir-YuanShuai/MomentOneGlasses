@@ -59,6 +59,17 @@ async function main() {
       && createTurn.intent.result.id && createTurn.intent.result.amount === 28.5,
     `id=${createTurn.intent && createTurn.intent.result && createTurn.intent.result.id ? String(createTurn.intent.result.id).slice(0, 8) : '无'}`);
 
+  // 2b) 今天查询：plan → summary custom from/to（今天 0 点起）
+  const nowUtc = new Date();
+  const todayStartUtc = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate())).toISOString();
+  const todayTurn = await runAgentTurn({ utterance: '今天花了多少钱' });
+  report('链路 今天查询 → summary(custom from/to)',
+    todayTurn.intent && todayTurn.intent.type === 'mcp.tool.result'
+      && todayTurn.intent.toolName === 'bookkeeping_summary'
+      && todayTurn.intent.result.period === 'custom'
+      && String(todayTurn.intent.result.from).startsWith(todayStartUtc.slice(0, 10)),
+    `period=${todayTurn.intent && todayTurn.intent.result && todayTurn.intent.result.period} from=${todayTurn.intent && todayTurn.intent.result && todayTurn.intent.result.from}`);
+
   // 3) 非记账话术：返回远程提示（只支持记账）
   const otherTurn = await runAgentTurn({ utterance: '帮我找找上周吃过的面馆' });
   report('链路 非记账话术 → 提示话术',

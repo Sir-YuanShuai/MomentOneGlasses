@@ -21,6 +21,7 @@
 import wx from 'wx';
 import { runAgentTurn } from '../../services/agent-loop.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
+import { formatDateLabel, formatTime } from '../../services/format.js';
 
 export default {
   data: {
@@ -100,7 +101,7 @@ export default {
       const amount = Number(result.amount || 0);
       const flow = result.flow === 'income' ? '收入' : '支出';
       const category = String(result.category || '未分类');
-      const occurredAt = result.occurredAt ? String(result.occurredAt).slice(0, 16).replace('T', ' ') : '';
+      const occurredAt = result.occurredAt ? this.formatLocalTime(result.occurredAt) : '';
       const title = result.title ? String(result.title) : `${flow} ${category}`;
       this.setData({
         status: 'ready',
@@ -121,6 +122,13 @@ export default {
       return;
     }
     this.setData({ status: 'ready', resultTitle: '操作完成', resultMessage: '服务端已处理该请求。' });
+  },
+
+  // Server 返回 ISO-8601（UTC），显示时转本地时区（如北京时间）
+  formatLocalTime(isoString) {
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return '';
+    return `${formatDateLabel(isoString)} ${formatTime(isoString)}`;
   },
 
   openDetail() {

@@ -41,6 +41,7 @@ import { getValidAccessToken } from '../../services/binding.js';
 import { CONTROL, resolveControl } from '../../services/controls.js';
 import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
+import { formatDateLabel, formatTime } from '../../services/format.js';
 
 export default {
   data: {
@@ -365,6 +366,8 @@ export default {
         const callArgs = { period: String(period || 'month') };
         if (args && Number.isFinite(Number(args.year))) callArgs.year = Number(args.year);
         if (args && Number.isFinite(Number(args.month))) callArgs.month = Number(args.month);
+        if (args && args.from_) callArgs.from_ = args.from_;
+        if (args && args.to) callArgs.to = args.to;
         resolved = await client.callTool('bookkeeping_summary', callArgs);
       }
       this.processing = false;
@@ -447,7 +450,7 @@ export default {
       const amount = Number(result.amount || 0);
       const flow = result.flow === 'income' ? '收入' : '支出';
       const category = String(result.category || '未分类');
-      const occurredAt = result.occurredAt ? String(result.occurredAt).slice(0, 16).replace('T', ' ') : '';
+      const occurredAt = result.occurredAt ? this.formatLocalTime(result.occurredAt) : '';
       const title = result.title ? String(result.title) : `${flow} ${category}`;
       const message = `${title} ¥${amount.toFixed(2)}${occurredAt ? ` · ${occurredAt}` : ''}，已记入服务端账本。`;
       this.setResult('记账成功', message, 'MCP 记账');
@@ -472,13 +475,22 @@ export default {
       const result = intent.result || {};
       this.setResult(
         result.title ? String(result.title) : 'Moment 详情',
-        result.occurredAt ? `时间：${String(result.occurredAt).slice(0, 16).replace('T', ' ')}` : '（无时间）',
+        result.occurredAt ? `时间：${this.formatLocalTime(result.occurredAt)}` : '（无时间）',
         'MCP 查询'
       );
       return;
     }
 
     this.setResult('操作完成', '服务端已处理该请求。', 'MCP 结果');
+  },
+
+  // Server 返回 ISO-8601（UTC），显示时转本地时区（如北京时间）
+  formatLocalTime(isoString) {
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return '';
+    const dateLabel = formatDateLabel(isoString);
+    const timeLabel = formatTime(isoString);
+    return `${dateLabel} ${timeLabel}`;
   },
 
   setResult(title, message, label = '记账助手', evidenceCount = 0) {
