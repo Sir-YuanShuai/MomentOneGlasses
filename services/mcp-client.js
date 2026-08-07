@@ -58,6 +58,43 @@ function createError(code, message, extra) {
 
 // AIUI 环境的 response.text() 会挂起（实测：请求 200 但客户端超时）。
 // 改用官方推荐的 response.body.getReader() + TextDecoder 流式读取。
+
+// AIUI 的 Headers 实现可能不支持 forEach，用 entries/get 兜底收集响应头
+function collectHeaders(headersObj) {
+  const result = {};
+  if (!headersObj) return result;
+  try {
+    if (typeof headersObj.forEach === 'function') {
+      headersObj.forEach((value, key) => {
+        result[String(key).toLowerCase()] = String(value);
+      });
+      return result;
+    }
+  } catch (error) {
+    // fallthrough
+  }
+  try {
+    if (typeof headersObj.entries === 'function') {
+      for (const entry of headersObj.entries()) {
+        result[String(entry[0]).toLowerCase()] = String(entry[1]);
+      }
+      return result;
+    }
+  } catch (error) {
+    // fallthrough
+  }
+  try {
+    ['mcp-session-id', 'content-type', 'mcp-protocol-version'].forEach((key) => {
+      const value = headersObj.get(key);
+      if (value !== null && value !== undefined && value !== '') {
+        result[String(key).toLowerCase()] = String(value);
+      }
+    });
+  } catch (error) {
+    // fallthrough
+  }
+  return result;
+}
 function readBodyText(response) {
   return new Promise((resolve, reject) => {
     const body = response && response.body;
@@ -125,15 +162,7 @@ function request(options) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      const responseHeader = {};
-      try {
-        response.headers.forEach((value, key) => {
-          responseHeader[key] = value;
-        });
-      } catch (error) {
-        // Headers 遍历失败时保留空对象（不影响 statusCode/data）
-      }
-      resolve({ statusCode: response.status, data, header: responseHeader, errMsg: 'ok' });
+      resolve({ statusCode: response.status, data, header: collectHeaders(response.headers), errMsg: 'ok' });
     }).catch((error) => {
       if (settled) return;
       settled = true;
