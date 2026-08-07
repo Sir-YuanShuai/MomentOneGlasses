@@ -140,10 +140,25 @@ export default {
     resultTitle: '',
     resultMessage: '',
     errorText: '',
+    timerProbe: 'pending',
+    netProbe: 'pending',
     a2uiCommands: buildMetricCommands({ expense: '--', income: '--', balance: '--' })
   },
 
   onLoad(query) {
+    // 探针1：定时器更新（不依赖网络）——区分「宿主不支持 onLoad 后更新」vs「网络失败」
+    setTimeout(() => {
+      this.setData({ timerProbe: 'after-2s' });
+    }, 2000);
+    // 探针2：网络可达性（healthz）
+    try {
+      fetch('https://moment-one-api.yuanshuai.fun/healthz')
+        .then((response) => this.setData({ netProbe: 'ok:' + response.status }))
+        .catch((error) => this.setData({ netProbe: 'fail' }));
+    } catch (error) {
+      this.setData({ netProbe: 'throw' });
+    }
+
     const q = query || {};
 
     // 1) 数据传入模式（官方范式：宿主已查询到数据 → 同步渲染完整卡片）
@@ -306,6 +321,11 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
+    <view class="probe">
+      <text class="probe-line">T定时={{ timerProbe }}</text>
+      <text class="probe-line">N网络={{ netProbe }}</text>
+    </view>
+
     <view class="card-head">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
@@ -355,6 +375,19 @@ export default {
   font-size: 9px;
   line-height: 13px;
   text-align: center;
+}
+
+.probe {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  padding: 2px 4px;
+}
+
+.probe-line {
+  color: var(--color-primary);
+  font-size: 9px;
+  line-height: 13px;
 }
 
 .card-head {
