@@ -8,6 +8,7 @@
 import wx from 'wx';
 import { SpeechRecognition } from 'speech';
 import { runAgentTurn } from '../../services/agent-loop.js';
+import { adaptToolResultA2ui, extractToolText } from '../../services/a2ui-adapter.js';
 import { createMcpClient, describeMcpError } from '../../services/mcp-client.js';
 import { getValidAccessToken } from '../../services/binding.js';
 import { CONTROL, resolveControl } from '../../services/controls.js';
@@ -38,6 +39,12 @@ export default {
       balanceLabel: '',
       count: 0,
       topCategories: []
+    },
+    immersiveA2ui: {
+      visible: false,
+      commands: '',
+      uri: '',
+      fallbackText: ''
     },
     softwareVersion: APP_VERSION,
     buildId: String(BUILD_ID).slice(0, 8)
@@ -277,10 +284,12 @@ export default {
     // 新一轮指令开始：收起上一轮的内嵌卡片，避免卡片一直显示
     this.setData({
       'mcpCard.visible': false,
+      'immersiveA2ui.visible': false,
+      'immersiveA2ui.commands': '',
       scrollIntoView: '',
       phase: 'classifying',
-      statusTitle: '正在处理记账请求',
-      statusDetail: '通过远程记账服务识别并执行',
+      statusTitle: '正在处理请求',
+      statusDetail: '动态发现并执行远程 MCP 工具',
       transcript: normalized,
       answer: '',
       answerLabel: '记账助手',
@@ -398,7 +407,56 @@ export default {
     this.setData({ 'mcpCard.visible': false, scrollIntoView: '' });
   },
 
-  // 远程 MCP 工具结果 → 对话流展示
+  presentImmersiveA2ui(toolResult, toolName) {
+    let presentation = null;
+    try {
+      presentation = adaptToolResultA2ui(toolResult);
+    } catch (error) {
+      console.error('[moment-one:index:a2ui] payload rejected:', error);
+      return false;
+    }
+    if (!presentation) return false;
+
+    const alreadyMounted = Boolean(this.data.immersiveA2ui.visible);
+    const fallbackText = presentation.fallbackText || '';
+    const nextData = {
+      phase: 'answered',
+      statusTitle: '已完成',
+      statusDetail: fallbackText || `${toolName || 'MCP 工具'}已返回动态界面`,
+      answer: '',
+      answerLabel: 'MCP 结果',
+      evidenceCount: 0,
+      sttLabel: '待命',
+      'mcpCard.visible': false,
+      'immersiveA2ui.visible': true,
+      'immersiveA2ui.uri': presentation.uri,
+      'immersiveA2ui.fallbackText': fallbackText,
+      scrollIntoView: 'immersive-a2ui'
+    };
+    if (!alreadyMounted) {
+      nextData['immersiveA2ui.commands'] = presentation.commands;
+      this.setData(nextData);
+    } else {
+      this.setData(nextData);
+      try {
+        const context = a2ui.createA2UIContext('index-mcp-a2ui');
+        if (!context) throw new Error('A2UI context unavailable');
+        context.write(presentation.commands);
+      } catch (error) {
+        console.error('[moment-one:index:a2ui] runtime update failed:', error);
+        this.setData({
+          'immersiveA2ui.visible': false,
+          answer: fallbackText || '动态界面暂不可用',
+          answerLabel: 'MCP 文本结果'
+        });
+        return false;
+      }
+    }
+    if (fallbackText) this.speak(fallbackText);
+    return true;
+  },
+
+  // 远程 MCP 工具结果 → 沉浸式页面展示
   presentMcpToolResult(intent) {
     const toolName = String(intent.toolName || '');
     const args = intent.toolArguments || {};
@@ -414,6 +472,8 @@ export default {
       );
       return;
     }
+
+    if (this.presentImmersiveA2ui(intent.toolResult, toolName)) return;
 
     if (toolName === 'bookkeeping_summary') {
       this.presentMcpSummary(args.period || 'month', intent.result, args);
@@ -456,7 +516,13 @@ export default {
       return;
     }
 
-    this.setResult('操作完成', '服务端已处理该请求。', 'MCP 结果');
+    const fallbackText = extractToolText(intent.toolResult);
+    this.setResult(
+      fallbackText ? '操作完成' : '结果不可显示',
+      fallbackText || '服务端没有返回 A2UI、文本或已知结构化结果。',
+      fallbackText ? 'MCP 文本结果' : 'MCP 结果'
+    );
+    if (fallbackText) this.speak(fallbackText);
   },
 
   // Server 返回 ISO-8601（UTC），显示时转本地时区（如北京时间）
@@ -641,11 +707,16 @@ export default {
           </view>
         </view>
 
-        <scroll-view class="content-scroll" scroll-y="true" scroll-into-view="{{ scrollIntoView }}">
+        <scroll-view class="content-scroll {{ immersiveA2ui.visible ? 'content-scroll-a2ui' : '' }}" scroll-y="true" scroll-into-view="{{ scrollIntoView }}">
           <text class="transcript" ink:if="{{ transcript }}">“{{ transcript }}”</text>
           <view class="answer-block" ink:if="{{ answer }}">
             <text class="answer-label">{{ answerLabel }}</text>
             <text class="answer-text">{{ answer }}</text>
+          </view>
+
+          <view id="immersive-a2ui" class="immersive-a2ui" ink:if="{{ immersiveA2ui.visible }}">
+            <a2ui id="index-mcp-a2ui" commands="{{ immersiveA2ui.commands }}" class="immersive-a2ui-surface"></a2ui>
+            <text class="immersive-a2ui-fallback" ink:if="{{ immersiveA2ui.fallbackText }}">{{ immersiveA2ui.fallbackText }}</text>
           </view>
 
           <view id="mcp-card" class="mcp-card" ink:if="{{ mcpCard.visible }}">
@@ -681,7 +752,7 @@ export default {
         </scroll-view>
       </card>
 
-      <view class="intent-guide">
+      <view class="intent-guide" ink:if="{{ !immersiveA2ui.visible && !mcpCard.visible }}">
         <text class="guide-title">一句话即可</text>
         <text class="guide-example">“记一笔午餐 28.5 元” · “上个月花了多少”</text>
         <text class="guide-example">“看看这个月的账单” · “打开记账详情”</text>
@@ -854,6 +925,30 @@ export default {
 .content-scroll {
   width: 100%;
   max-height: 148px;
+}
+
+
+.content-scroll-a2ui {
+  max-height: 244px;
+}
+
+.immersive-a2ui {
+  margin: 4px var(--card-padding) var(--card-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.immersive-a2ui-surface {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.immersive-a2ui-fallback {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
 }
 
 .transcript {

@@ -14,6 +14,7 @@
 //           3) 401 刷新重试与会话过期重建（客户端容错）
 import { createMcpClient, describeMcpError } from '../../services/mcp-client.js';
 import { getValidAccessToken } from '../../services/binding.js';
+import { adaptToolResultA2ui, A2UI_MIME_TYPE } from '../../services/a2ui-adapter.js';
 import {
   __seedStorage,
   __getStorage,
@@ -262,6 +263,22 @@ async function scenarioPlan() {
     `summary(${summaryPlan.args.year}-${summaryPlan.args.month}) create(${createPlan.args.amount}/${createPlan.args.flow}/${createPlan.args.category}) none=${noneOk}`);
 }
 
+async function scenarioA2uiAgentPlan() {
+  const mcp = client();
+  const plan = await mcp.callTool('agent_plan', { input: '查看我的习惯进度' });
+  const toolName = String(plan.toolName || '');
+  const args = plan.arguments && typeof plan.arguments === 'object' ? plan.arguments : {};
+  const envelope = toolName ? await mcp.callToolResult(toolName, args) : null;
+  const presentation = envelope ? adaptToolResultA2ui(envelope) : null;
+  const resource = envelope && Array.isArray(envelope.content)
+    ? envelope.content.find((item) => item && item.type === 'resource' && item.resource && item.resource.mimeType === A2UI_MIME_TYPE)
+    : null;
+  const commands = presentation ? JSON.parse(presentation.commands) : [];
+  report('S13 agent_plan → 动态工具 → 标准 A2UI',
+    toolName === 'habit_progress' && Boolean(resource) && commands.length >= 3 && Boolean(presentation.fallbackText),
+    `tool=${toolName || '无'} mime=${resource ? resource.resource.mimeType : '无'} rokidCommands=${commands.length}`);
+}
+
 async function main() {
   console.log(`MCP 验证目标: ${VERIFY_URL}`);
   console.log(`使用 token: ${VERIFY_TOKEN ? VERIFY_TOKEN.slice(0, 24) + '…' : '（空）'}\n`);
@@ -288,6 +305,7 @@ async function main() {
     await scenarioRpcError();
     await scenarioPrompts();
     await scenarioPlan();
+    await scenarioA2uiAgentPlan();
 
     const tokenStillValid = await getValidAccessToken();
     report('S9 绑定 token 仍有效', tokenStillValid === VERIFY_TOKEN, '');

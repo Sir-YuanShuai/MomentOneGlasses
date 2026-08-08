@@ -1,14 +1,14 @@
 <script def>
 {
   "navigationBarTitleText": "一刻",
-  "description": "一刻的远程 MCP 能力入口。用户要记录、查询生活记录、记账查账、查看习惯或执行其他一刻功能时，转发完整原话 utterance；页面动态发现并执行远程工具，优先渲染标准 A2UI。",
+  "description": "必须用于一刻相关请求：记一笔账、查本月/上月账单、查看收入支出、查看最近生活记录、搜索过去记录、查看习惯目标或习惯进度、习惯打卡。调用时只把用户完整原话放入 utterance；页面会动态发现并执行远程 MCP 工具并展示结果。",
   "schema": {
     "data": {
       "type": "object",
       "properties": {
         "utterance": {
           "type": "string",
-          "description": "用户的完整原话，例如：上个月花了多少 / 记一笔午餐 28.5 元 / 看看这个月的账单"
+          "description": "必须原样转发用户请求，不要生成收入、支出、日期或工具参数。例如：上个月花了多少 / 查看最近记录 / 查看习惯进度 / 完成一次晨跑打卡"
         }
       },
       "required": ["utterance"]

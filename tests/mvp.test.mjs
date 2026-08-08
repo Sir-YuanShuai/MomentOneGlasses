@@ -104,9 +104,9 @@ function testAppConfig() {
   const appConfig = JSON.parse(fs.readFileSync('app.json', 'utf8'));
   assert.deepEqual(appConfig.pages, [
     'pages/index/index',
+    'pages/cards/bookkeeping-card',
     'pages/scan/scan',
     'pages/cards/account-unbind',
-    'pages/cards/bookkeeping-card',
     'pages/mcp/detail',
   ]);
 
@@ -160,7 +160,10 @@ function testIndexEntryRouting() {
   assert.match(source, /APP_VERSION/, 'index must display the unified app version');
   assert.match(source, /BUILD_ID/, 'index must display the packaged build id');
   assert.match(source, /runAgentTurn/, 'index must route utterances through the MCP pre-router');
-  assert.match(source, /mcpCard/, 'index must embed the MCP summary card in the conversation (conversational AIUI)');
+  assert.match(source, /mcpCard/, 'index must keep the legacy MCP summary fallback');
+  assert.match(source, /immersiveA2ui/, 'index must expose a generic immersive A2UI surface');
+  assert.match(source, /adaptToolResultA2ui/, 'index must consume standard A2UI tool results');
+  assert.match(source, /index-mcp-a2ui/, 'index must render A2UI with the official component');
   assert.match(source, /openMcpDetail/, 'index must open the full-screen detail from the embedded card');
   assert.doesNotMatch(source, /saveMoment/, 'index must not keep local moment storage code');
   assert.doesNotMatch(source, /memory-repository|memory-store|moment-ai/, 'index must not import local memory services');
@@ -251,7 +254,7 @@ function testBuildInfo() {
 
 function testAppJsConfig() {
   const appSource = fs.readFileSync('app.js', 'utf8');
-  assert.match(appSource, /version: '0\.3\.16'/);
+  assert.match(appSource, /version: '0\.3\.17'/);
   assert.match(appSource, /mcpEnabled:\s*true/);
   assert.match(appSource, /mcpAppsEnabled:\s*true/);
 }

@@ -18,7 +18,7 @@ import { getValidAccessToken, tryRefresh } from './binding.js';
 import { A2UI_BASIC_CATALOG_ID, A2UI_BASIC_CATALOG_ID_V091 } from './a2ui-adapter.js';
 
 const MCP_CLIENT_NAME = 'moment-one-glasses';
-const MCP_CLIENT_VERSION = '0.3.16';
+const MCP_CLIENT_VERSION = '0.3.17';
 
 // A2UI over MCP capability negotiation. The Server remains standards-based;
 // the Rokid-specific command conversion lives in services/a2ui-adapter.js.

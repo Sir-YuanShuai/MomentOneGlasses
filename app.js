@@ -13,7 +13,7 @@ export default {
 
   globalData: {
     appName: '一刻 YiKe · Moment One',
-    version: '0.3.16',
+    version: '0.3.17',
     defaultUserId: 'local-user',
     timezone: 'Asia/Shanghai',
     repositoryMode: 'local',
