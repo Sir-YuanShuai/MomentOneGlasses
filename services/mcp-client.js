@@ -15,9 +15,29 @@ import {
   MCP_REQUEST_TIMEOUT_MS
 } from './config.js';
 import { getValidAccessToken, tryRefresh } from './binding.js';
+import { A2UI_BASIC_CATALOG_ID, A2UI_BASIC_CATALOG_ID_V091 } from './a2ui-adapter.js';
 
 const MCP_CLIENT_NAME = 'moment-one-glasses';
-const MCP_CLIENT_VERSION = '0.3.15';
+const MCP_CLIENT_VERSION = '0.3.16';
+
+// A2UI over MCP capability negotiation. The Server remains standards-based;
+// the Rokid-specific command conversion lives in services/a2ui-adapter.js.
+const A2UI_CAPABILITY = Object.freeze({
+  clientCapabilities: {
+    'v0.9': {
+      supportedCatalogIds: [A2UI_BASIC_CATALOG_ID_V091, A2UI_BASIC_CATALOG_ID],
+      inlineCatalogs: []
+    }
+  }
+});
+
+export const MCP_CLIENT_CAPABILITIES = Object.freeze({
+  // A2UI guide shape. Kept for servers that preserve extension fields.
+  a2ui: A2UI_CAPABILITY,
+  // Current Python MCP SDK preserves these standard extension namespaces.
+  experimental: { a2ui: A2UI_CAPABILITY },
+  extensions: { 'org.a2ui': A2UI_CAPABILITY }
+});
 
 // Streamable HTTP 请求头（与 Server SDK 要求一致，见 tests/api/test_mcp_server.py）
 const DEFAULT_HEADERS = {
@@ -333,7 +353,7 @@ export function createMcpClient(options = {}) {
       method: 'initialize',
       params: {
         protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
+        capabilities: MCP_CLIENT_CAPABILITIES,
         clientInfo: { name: MCP_CLIENT_NAME, version: MCP_CLIENT_VERSION }
       }
     }, false);
@@ -404,7 +424,7 @@ export function createMcpClient(options = {}) {
     return { code: 'MCP_TOOL_ERROR', message: firstLine.slice(0, 120) || '工具执行失败', details: {} };
   }
 
-  function assertToolResult(result) {
+  function assertToolResultEnvelope(result) {
     if (result && result.isError === true) {
       const info = extractToolError(result);
       const error = createError(
@@ -417,7 +437,12 @@ export function createMcpClient(options = {}) {
       );
       throw error;
     }
-    return result && result.structuredContent !== undefined ? result.structuredContent : result;
+    return result || {};
+  }
+
+  function unwrapStructuredContent(result) {
+    const envelope = assertToolResultEnvelope(result);
+    return envelope.structuredContent !== undefined ? envelope.structuredContent : envelope;
   }
 
   return {
@@ -427,8 +452,27 @@ export function createMcpClient(options = {}) {
       }));
     },
 
+    // 完整结果接口：保留 content / structuredContent / _meta，供 A2UI
+    // EmbeddedResource、文本降级和其他 MCP 内容类型共同消费。
+    callToolResult(name, arguments_) {
+      return withSession('tools/call', { name, arguments: arguments_ || {} }).then(assertToolResultEnvelope);
+    },
+
+    // 兼容现有业务调用：仍只返回 structuredContent。
     callTool(name, arguments_) {
-      return withSession('tools/call', { name, arguments: arguments_ || {} }).then(assertToolResult);
+      return withSession('tools/call', { name, arguments: arguments_ || {} }).then(unwrapStructuredContent);
+    },
+
+    listResources() {
+      return withSession('resources/list', {}).then((result) => ({
+        resources: result && Array.isArray(result.resources) ? result.resources : []
+      }));
+    },
+
+    readResource(uri) {
+      return withSession('resources/read', { uri }).then((result) => ({
+        contents: result && Array.isArray(result.contents) ? result.contents : []
+      }));
     },
 
     // 远程提示词（工具/提示词均由远程提供，眼镜端只做客户端适配）

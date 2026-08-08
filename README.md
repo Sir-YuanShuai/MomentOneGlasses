@@ -2,13 +2,13 @@
 
 **AI 替你记住人生。**
 
-Moment One 眼镜端是面向 Rokid AI Glasses 的**记账助手（纯 MCP 客户端）**：通过语音直接记账与查账，记账、统计、明细全部由远程记账服务（MCP bookkeeping 工具）完成，工具与提示词均由远程提供，眼镜端不内置本地存储与本地业务逻辑（历史本地 Moment 能力已移除）。
+Moment One 眼镜端是面向 Rokid AI Glasses 的**纯远程 MCP 生活助手**：通过 `tools/list` 动态发现 Server 工具，由 Server `agent_plan` 规划并执行；结果优先使用标准 A2UI over MCP 渲染，文本和旧记账 UI 仅作降级。眼镜端不存业务数据、不内置业务工具。
 
 ## 当前 MVP
 
 - 设备扫码绑定：眼镜端扫描 Web 端二维码，通过 OAuth 2.1 QR Binding grant 向 Server 换取 JWT access_token + refresh_token，本地持久化（仅凭据，不存业务数据）。
 - Token 自动刷新：access_token 过期前自动用 refresh_token 刷新；refresh_token 最长 30 天且不滚动，过期、撤销或刷新失败后清除本地绑定并要求重新扫码。
-- 记账对话（纯 MCP）：语音入口 → 记账话术门槛 → 远程 `bookkeeping_plan` 确定性解析（上月/某月/某年、记一笔金额/分类）→ 执行远程 `bookkeeping_create` / `bookkeeping_summary` / `bookkeeping_list` → 对话流卡片/全屏详情页展示。
+- 动态 MCP 对话：语音/页面 utterance → `tools/list` → Server `agent_plan` → 校验并执行远程工具 → A2UI EmbeddedResource / TextContent / structuredContent 分层展示；旧 Server 兼容 bookkeeping_plan。
 - 统一入口：index 页根据本地绑定状态（bound / unbound / expired）显示记账入口或绑定门。
 - 权限管理：Web 端「授权与设备」统一管理眼镜设备读写权限（实时生效，无需重绑）。
 
@@ -47,10 +47,11 @@ Moment One 眼镜端是面向 Rokid AI Glasses 的**记账助手（纯 MCP 客�
 ├── pages/
 │   ├── index/index.ink       # 入口：绑定门 + 记账对话
 │   ├── scan/scan.ink         # 扫码绑定
-│   ├── cards/                # 对话流卡片（mcp-summary / account-unbind）
+│   ├── cards/                # 对话流卡片（bookkeeping-card / account-unbind）
 │   └── mcp/detail.ink        # 记账详情全屏页
 ├── services/
-│   ├── agent-loop.js         # 记账预路由（bookkeeping_plan → 执行 → 结果意图）
+│   ├── agent-loop.js         # 动态发现 → Server agent_plan → 校验并执行
+│   ├── a2ui-adapter.js       # 标准 A2UI → Rokid A2UI 兼容层
 │   ├── bookkeeping-gate.js   # 记账话术门槛（纯函数）
 │   ├── mcp-client.js         # 轻量 MCP 客户端（手写 JSON-RPC 2.0）
 │   ├── binding.js            # 设备绑定服务（deviceId、绑定状态、token 刷新、二维码解析）

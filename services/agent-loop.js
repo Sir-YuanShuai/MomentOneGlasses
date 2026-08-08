@@ -1,21 +1,24 @@
-// 记账预路由（纯 MCP 客户端模式，不依赖设备 LLM / 本地能力）。
-//
-// 链路：话术 → 记账门槛 → 远程 bookkeeping_plan（确定性解析）
-//   → 按 action 执行远程工具（summary / create / list）
-//   → 返回 mcp.tool.result 意图，由 index 渲染卡片/结果。
-// 非记账话术返回 mcp.plan.reply 提示。
+// 远程 MCP Agent loop（不依赖设备端模型工具规划）。
+// 首选链路：tools/list 动态发现 → Server agent_plan → 校验并执行所选工具。
+// 兼容链路：旧 Server 无 agent_plan 时继续使用 bookkeeping_plan。
+// 工具结果保留完整 CallToolResult，供 A2UI / 文本 / structuredContent 分层展示。
 import { createTurnTrace, emitAgentTrace } from './agent-trace.js';
 import { createMcpClient } from './mcp-client.js';
 import { looksLikeBookkeeping } from './bookkeeping-gate.js';
 
 export { looksLikeBookkeeping };
 
-function mcpResultIntent(toolName, toolArguments, structuredContent) {
+function mcpResultIntent(toolName, toolArguments, toolResult) {
+  const envelope = toolResult || {};
+  const structuredContent = envelope.structuredContent !== undefined
+    ? envelope.structuredContent
+    : envelope;
   return {
     type: 'mcp.tool.result',
     toolName,
     toolArguments: toolArguments || {},
     result: structuredContent,
+    toolResult: envelope,
     ok: true,
     confidence: 1,
     source: 'mcp-plan',
@@ -38,55 +41,81 @@ export async function runAgentTurn({ utterance }) {
 
   if (!input) {
     return {
-      intent: replyIntent('请直接说想做什么，例如「记一笔午餐 28.5 元」或「上个月花了多少」。'),
+      intent: replyIntent('请直接说想做什么，例如记账、查账、查看记录或习惯进度。'),
       turnId: turn.turnId,
-      source: 'bookkeeping-plan',
-    };
-  }
-
-  // 非记账话术：直接提示（本版本只保留 MCP 记账能力）
-  if (!looksLikeBookkeeping(input)) {
-    return {
-      intent: replyIntent('当前只支持记账相关操作。可以试试「记一笔午餐 28.5 元」「上个月花了多少」或「看看这个月的账单」。'),
-      turnId: turn.turnId,
-      source: 'bookkeeping-plan',
+      source: 'mcp-agent-plan',
     };
   }
 
   let mcpClient = null;
   try {
     mcpClient = createMcpClient();
+    const discovery = await mcpClient.listTools();
+    const tools = discovery && Array.isArray(discovery.tools) ? discovery.tools : [];
+    const toolNames = tools.map((tool) => String(tool && tool.name || '')).filter(Boolean);
+    emitAgentTrace(turn, 'mcp.tools.discovered', { count: toolNames.length });
+
+    // Preferred generic route: Server owns planning and can add tools without
+    // an AIX release. The client validates the selected tool against tools/list
+    // before executing it.
+    if (toolNames.includes('agent_plan')) {
+      const plan = await mcpClient.callTool('agent_plan', { input });
+      const toolName = String(plan.toolName || plan.tool || '');
+      const args = plan.arguments && typeof plan.arguments === 'object'
+        ? plan.arguments
+        : (plan.args && typeof plan.args === 'object' ? plan.args : {});
+      emitAgentTrace(turn, 'agent.plan', { toolName, args: JSON.stringify(args) });
+
+      if (!toolName) {
+        return {
+          intent: replyIntent(String(plan.reply || '没有识别到可执行的操作，请再说一遍。')),
+          turnId: turn.turnId,
+          source: 'mcp-agent-plan',
+        };
+      }
+      if (toolName === 'agent_plan' || !toolNames.includes(toolName)) {
+        throw new Error(`Server planner selected an unavailable tool: ${toolName}`);
+      }
+      const result = await mcpClient.callToolResult(toolName, args);
+      return { intent: mcpResultIntent(toolName, args, result), turnId: turn.turnId, source: 'mcp-agent-plan' };
+    }
+
+    // Compatibility path for the currently deployed bookkeeping-only Server.
+    if (!looksLikeBookkeeping(input) || !toolNames.includes('bookkeeping_plan')) {
+      return {
+        intent: replyIntent('当前服务暂未开放这项能力，可以先试试记账、查账或账单统计。'),
+        turnId: turn.turnId,
+        source: 'bookkeeping-plan',
+      };
+    }
+
     const plan = await mcpClient.callTool('bookkeeping_plan', { input });
     const action = String(plan.action || 'none');
     const args = plan.args && typeof plan.args === 'object' ? plan.args : {};
+    const actionTools = {
+      summary: 'bookkeeping_summary',
+      create: 'bookkeeping_create',
+      list: 'bookkeeping_list'
+    };
+    const toolName = actionTools[action] || '';
     emitAgentTrace(turn, 'bookkeeping.plan', { action, args: JSON.stringify(args) });
 
-    if (action === 'none') {
+    if (!toolName) {
       return {
         intent: replyIntent(String(plan.reply || '没有识别到记账意图，请再说一遍。')),
         turnId: turn.turnId,
         source: 'bookkeeping-plan',
       };
     }
-    if (action === 'summary') {
-      const result = await mcpClient.callTool('bookkeeping_summary', args);
-      return { intent: mcpResultIntent('bookkeeping_summary', args, result), turnId: turn.turnId, source: 'bookkeeping-plan' };
-    }
-    if (action === 'create') {
-      const result = await mcpClient.callTool('bookkeeping_create', args);
-      return { intent: mcpResultIntent('bookkeeping_create', args, result), turnId: turn.turnId, source: 'bookkeeping-plan' };
-    }
-    if (action === 'list') {
-      const result = await mcpClient.callTool('bookkeeping_list', args);
-      return { intent: mcpResultIntent('bookkeeping_list', args, result), turnId: turn.turnId, source: 'bookkeeping-plan' };
-    }
-    return { intent: replyIntent('没有识别到记账意图，请再说一遍。'), turnId: turn.turnId, source: 'bookkeeping-plan' };
+    if (!toolNames.includes(toolName)) throw new Error(`MCP tool is unavailable: ${toolName}`);
+    const result = await mcpClient.callToolResult(toolName, args);
+    return { intent: mcpResultIntent(toolName, args, result), turnId: turn.turnId, source: 'bookkeeping-plan' };
   } catch (error) {
-    console.error('[moment-one:mcp] bookkeeping plan failed:', error);
+    console.error('[moment-one:mcp] agent turn failed:', error);
     const message = (error && error.code === 'MCP_AUTH_REQUIRED')
       ? '登录状态已失效，请重新扫码绑定账号。'
-      : '记账服务暂时不可用，请检查网络后重试。';
-    return { intent: replyIntent(message), turnId: turn.turnId, source: 'bookkeeping-plan' };
+      : '服务暂时不可用，请检查网络后重试。';
+    return { intent: replyIntent(message), turnId: turn.turnId, source: 'mcp-agent-plan' };
   } finally {
     if (mcpClient) mcpClient.reset();
   }

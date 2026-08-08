@@ -140,11 +140,13 @@ function testBookkeepingCardPageTool() {
   const source = fs.readFileSync('pages/cards/bookkeeping-card.ink', 'utf8');
   assert.match(source, /utterance/, 'bookkeeping-card must accept the utterance page-tool argument');
   assert.match(source, /runAgentTurn/, 'bookkeeping-card must reuse the MCP pre-router');
-  assert.match(source, /renderFromData/, 'bookkeeping-card must render synchronously from passed data (official data-driven pattern)');
-  assert.match(source, /"income"/, 'bookkeeping-card schema must accept summary data fields');
-  assert.match(source, /"expense"/, 'bookkeeping-card schema must accept summary data fields');
+  assert.match(source, /renderFromData/, 'bookkeeping-card must keep the legacy structured-data fallback');
+  const defBlock = source.slice(source.indexOf('<script def>'), source.indexOf('</script>'));
+  assert.doesNotMatch(defBlock, /"income"|"expense"|"count"/, 'page-tool schema must only forward utterance and must not invite host-fabricated data');
   assert.match(source, /expenseLabel: '--'/, 'bookkeeping-card must seed plain placeholder labels (no misleading 0)');
-  assert.doesNotMatch(source, /<a2ui/, 'bookkeeping-card must not depend on a2ui container (host card renders text-lines reliably)');
+  assert.match(source, /<a2ui/, 'bookkeeping-card must provide the official AIUI A2UI renderer');
+  assert.match(source, /adaptToolResultA2ui/, 'bookkeeping-card must adapt standard MCP A2UI resources');
+  assert.match(source, /createA2UIContext/, 'bookkeeping-card must update an already-mounted A2UI surface via runtime context');
   assert.doesNotMatch(source.replace(/<script[\s\S]*?<\/script>/g, ''), /\{\{ summary\./, 'bookkeeping-card template must not use nested {{ summary.x }} bindings (host card container limitation)');
   assert.match(source, /card-version/, 'bookkeeping-card must always show the version line');
   assert.match(source, /@media \(target: _current\)/, 'bookkeeping-card must adapt to the conversation-flow card container');
@@ -211,6 +213,10 @@ function testMcpClientService() {
   assert.match(source, /createMcpClient/, 'mcp-client must export createMcpClient');
   assert.match(source, /listTools/, 'mcp-client must expose tools/list');
   assert.match(source, /callTool/, 'mcp-client must expose tools/call');
+  assert.match(source, /callToolResult/, 'mcp-client must preserve full CallToolResult for embedded A2UI resources');
+  assert.match(source, /MCP_CLIENT_CAPABILITIES/, 'mcp-client must advertise A2UI capabilities during initialize');
+  assert.match(source, /listResources/, 'mcp-client must expose resources/list');
+  assert.match(source, /readResource/, 'mcp-client must expose resources/read');
   assert.match(source, /listPrompts/, 'mcp-client must expose prompts/list');
   assert.match(source, /getPrompt/, 'mcp-client must expose prompts/get');
   assert.match(source, /401/, 'mcp-client must handle 401 refresh-retry');
@@ -223,6 +229,9 @@ function testNoLocalMemoryCode() {
   });
   const agentLoop = fs.readFileSync('services/agent-loop.js', 'utf8');
   assert.doesNotMatch(agentLoop, /LanguageModel/, 'agent-loop must not depend on device LanguageModel');
+  assert.match(agentLoop, /listTools/, 'agent-loop must discover remote MCP tools at runtime');
+  assert.match(agentLoop, /agent_plan/, 'agent-loop must prefer the Server-side generic planner');
+  assert.match(agentLoop, /toolNames\.includes\(toolName\)/, 'agent-loop must validate planned tools against discovery');
 }
 
 function testDeviceId() {
@@ -242,7 +251,7 @@ function testBuildInfo() {
 
 function testAppJsConfig() {
   const appSource = fs.readFileSync('app.js', 'utf8');
-  assert.match(appSource, /version: '0\.3\.15'/);
+  assert.match(appSource, /version: '0\.3\.16'/);
   assert.match(appSource, /mcpEnabled:\s*true/);
   assert.match(appSource, /mcpAppsEnabled:\s*true/);
 }

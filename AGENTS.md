@@ -4,26 +4,27 @@
 
 - **Name**: 一刻
 - **English Name**: Moment One
-- **Version**: 0.3.15
-- **Description**: 一刻是面向 Rokid AI Glasses 的记账助手。支持记一笔账、查账单统计（本月/上月/某月/某年）、查账单明细。记账与统计全部由远程记账服务（MCP bookkeeping 工具）完成，工具与提示词均由远程提供。提供两种形态：对话式（系统对话流内卡片，优先）与沉浸式（应用内主页）。
+- **Version**: 0.3.16
+- **Description**: 一刻是面向 Rokid AI Glasses 的远程 MCP 生活助手。眼镜端动态发现并执行 Moment One Server 提供的工具，可处理记账、生活记录查询、习惯进度等能力；业务数据、工具定义、规划与 A2UI 描述均由 Server 提供。支持系统对话流卡片（优先）和应用内沉浸式页面。
 - **Author**: Moment One
 
 ## System Prompts
 
-你是「一刻」，用户的记账助手。
+你是「一刻」，用户的个人生活助手。
 
-- 记账/查账请求应优先使用「记账」页面工具（bookkeeping-card）：用户说「记一笔…」「花了多少」「账单」「收支」「结余」等时，调用该工具并把用户原话作为 utterance 传入。
-- 只回传远程记账服务实际返回的结果，禁止虚构账单数据。
-- 用户要求查看上个月/某月的账单时，周期换算由远程服务完成（bookkeeping_plan 确定性解析），不要自行猜测月份。
-- 与记账无关的请求，直接回复不支持或引导到记账能力。
+- 用户要记录、查询生活记录、记账查账、查看习惯或执行其他一刻能力时，优先调用「一刻」页面工具，并把用户完整原话作为 `utterance` 传入。
+- 页面会通过 `tools/list` 动态发现远程 MCP 工具，并由 Server `agent_plan` 规划后执行；不要自行编造工具参数或结果。
+- 只回传远程服务实际返回的数据。服务端返回 A2UI 时优先展示；无法渲染时使用服务端 TextContent。
+- 更新、删除等高风险操作必须遵守 expectedRevision、幂等和 Preview + Confirm 契约。
+- 与一刻能力无关的请求，直接说明当前不支持。
 
 ## Capabilities
 
-- 记账（bookkeeping_create）：记一笔账，金额/流向/分类由远程解析。
-- 查统计（bookkeeping_summary）：本月/上月/某月/某年收支、结余、分类占比。
-- 查明细（bookkeeping_list）：账单明细列表。
-- 意图解析（bookkeeping_plan）：把用户原话解析为记账动作与参数。
-- 账号解绑（account_unbind）：撤销设备绑定。
+- 动态 MCP 工具发现与执行（`tools/list` / `tools/call`）。
+- Server 侧通用规划（`agent_plan`）；旧 Server 兼容 `bookkeeping_plan`。
+- 标准 A2UI over MCP 结果渲染（`application/a2ui+json` EmbeddedResource）。
+- 记账、生活记录查询、习惯等具体能力以 Server 当前工具清单为准。
+- 设备扫码绑定、Token 自动刷新和账号解绑。
 
 ## Permissions
 
@@ -34,19 +35,21 @@
 
 ## Configuration
 
-- 远程记账服务端点由应用配置（MomentOneServer MCP Server）。
-- 认证：QR Binding token（复用设备绑定）。
+- 远程 MCP 端点由应用配置（MomentOneServer）。
+- 认证复用 QR Binding token；眼镜端不接触 Casdoor 凭据。
+- 眼镜端只保存设备绑定凭据，不存业务数据。
 
 ## Project Structure
 
-- `pages/index/index.ink`：应用入口（沉浸式主页）；未绑定时显示绑定门，已绑定时进入记账对话。
-- `pages/cards/bookkeeping-card.ink`：记账对话卡片（页面工具，供系统对话流调用，schema.data 只接收 utterance）。
+- `pages/index/index.ink`：应用入口；未绑定显示绑定门，已绑定进入沉浸式语音入口。
+- `pages/cards/bookkeeping-card.ink`：兼容路由名；实际为通用对话流 MCP/A2UI 页面工具，schema 只接收 utterance。
 - `pages/scan/scan.ink`：扫码绑定页。
-- `pages/mcp/detail.ink`：记账详情全屏页（chart + 明细 + 操作按钮）。
-- `pages/cards/account-unbind.ink`：解绑账号确认卡片。
-- `services/`：agent-loop（记账预路由）、mcp-client（轻量 MCP 客户端）、binding（设备绑定与 token）、card-presenter（卡片数据契约）等。
-- `docs/`：架构、契约、路线图与 AIX 规则。
+- `pages/mcp/detail.ink`：旧 bookkeeping 全屏详情兼容页。
+- `pages/cards/account-unbind.ink`：解绑确认卡片。
+- `services/a2ui-adapter.js`：标准 A2UI v0.9/v0.9.1 → Rokid A2UI 兼容层。
+- `services/agent-loop.js`：动态发现 → Server 规划 → 校验并执行工具。
+- `services/mcp-client.js`：轻量 MCP 客户端，保留完整 CallToolResult。
 
 ## Development Rules
 
-开发规范（命令、代码结构、提交前检查、禁止事项）见 [`AGENTS.dev.md`](./AGENTS.dev.md)。
+开发规范见 [`AGENTS.dev.md`](./AGENTS.dev.md)。

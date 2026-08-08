@@ -1,33 +1,17 @@
 <script def>
 {
-  "navigationBarTitleText": "记账",
-  "description": "记账/查账相关问题优先返回此工具：记一笔账、查账单统计（本月/上月/某月/某年）、查账单明细。可传入用户原话（utterance）由页面自动解析执行；若宿主已查询到统计数据，也可直接传入 period/income/expense/balance/count 等数据同步渲染卡片。",
+  "navigationBarTitleText": "一刻",
+  "description": "一刻的远程 MCP 能力入口。用户要记录、查询生活记录、记账查账、查看习惯或执行其他一刻功能时，转发完整原话 utterance；页面动态发现并执行远程工具，优先渲染标准 A2UI。",
   "schema": {
     "data": {
       "type": "object",
       "properties": {
         "utterance": {
           "type": "string",
-          "description": "用户的原话指令，例如：上个月花了多少 / 记一笔午餐 28.5 元 / 看看这个月的账单（未传入统计数据时由页面自行解析执行）"
-        },
-        "period": {
-          "type": "string",
-          "description": "统计周期：month/quarter/year，或 custom（配合 from/to 自定义范围）"
-        },
-        "year": { "type": "integer", "description": "周期年份（可选）" },
-        "month": { "type": "integer", "description": "周期月份 1-12 或季度 1-4（可选）" },
-        "from": { "type": "string", "description": "自定义范围开始 ISO-8601（period=custom 时）" },
-        "to": { "type": "string", "description": "自定义范围结束 ISO-8601（period=custom 时）" },
-        "income": { "type": "number", "description": "周期收入合计（宿主已查询到数据时传入，同步渲染）" },
-        "expense": { "type": "number", "description": "周期支出合计" },
-        "balance": { "type": "number", "description": "结余（缺省按 income-expense）" },
-        "count": { "type": "number", "description": "计入统计的记录笔数" },
-        "byCategory": {
-          "type": "array",
-          "description": "支出分类小计 [{category, amount}]",
-          "items": { "type": "object" }
+          "description": "用户的完整原话，例如：上个月花了多少 / 记一笔午餐 28.5 元 / 看看这个月的账单"
         }
-      }
+      },
+      "required": ["utterance"]
     }
   }
 }
@@ -36,6 +20,7 @@
 <script setup>
 import wx from 'wx';
 import { runAgentTurn } from '../../services/agent-loop.js';
+import { adaptToolResultA2ui, extractToolText } from '../../services/a2ui-adapter.js';
 import { APP_VERSION, BUILD_ID } from '../../services/build-info.js';
 import { createMcpSummaryCard } from '../../services/card-presenter.js';
 import { formatDateLabel, formatTime } from '../../services/format.js';
@@ -63,7 +48,11 @@ export default {
     topCategories: [],
     resultTitle: '',
     resultMessage: '',
-    errorText: ''
+    errorText: '',
+    hasA2ui: false,
+    a2uiCommands: '',
+    a2uiSurfaceUri: '',
+    a2uiFallbackText: ''
   },
 
   // 宿主传入的 0 值参数（模型按 schema 填默认 0）不算真实数据
@@ -129,6 +118,9 @@ export default {
   // 宿主卡片环境网络有间歇抖动，失败重试一次
   async run(utterance, attempt) {
     const round = Number(attempt) || 1;
+    if (round === 1 && this.data.hasA2ui) {
+      this.setData({ hasA2ui: false, a2uiCommands: '', a2uiSurfaceUri: '', a2uiFallbackText: '' });
+    }
     console.log('[moment-one:card] run start', JSON.stringify({ utterance, round }));
     try {
       const plan = await runAgentTurn({ utterance });
@@ -145,6 +137,49 @@ export default {
         errorText: (error && error.message) || '记账服务暂时不可用',
       });
     }
+  },
+
+  renderA2uiToolResult(toolResult) {
+    let presentation = null;
+    try {
+      presentation = adaptToolResultA2ui(toolResult);
+    } catch (error) {
+      console.error('[moment-one:a2ui] payload rejected:', error);
+      return false;
+    }
+    if (!presentation) return false;
+
+    const alreadyMounted = Boolean(this.data.hasA2ui);
+    const nextData = {
+      status: 'ready',
+      hasA2ui: true,
+      a2uiSurfaceUri: presentation.uri,
+      a2uiFallbackText: presentation.fallbackText || '',
+      errorText: ''
+    };
+
+    if (!alreadyMounted) {
+      // commands is consumed when the conditional component first mounts.
+      nextData.a2uiCommands = presentation.commands;
+      this.setData(nextData);
+      return true;
+    }
+
+    this.setData(nextData);
+    try {
+      const context = a2ui.createA2UIContext('mcp-a2ui');
+      if (!context) throw new Error('A2UI context unavailable');
+      context.write(presentation.commands);
+    } catch (error) {
+      console.error('[moment-one:a2ui] runtime update failed:', error);
+      this.setData({
+        hasA2ui: false,
+        a2uiCommands: '',
+        errorText: presentation.fallbackText || '动态界面暂不可用，已切换到文本结果'
+      });
+      return false;
+    }
+    return true;
   },
 
   renderIntent(intent) {
@@ -176,6 +211,10 @@ export default {
       return;
     }
 
+    // A2UI EmbeddedResource is the primary presentation. The bookkeeping
+    // branches below remain as compatibility fallbacks for older Servers.
+    if (this.renderA2uiToolResult(intent.toolResult)) return;
+
     if (toolName === 'bookkeeping_summary') {
       console.log('[moment-one:card] summary result', JSON.stringify(intent.result));
       this.renderFromData(intent.result);
@@ -206,7 +245,16 @@ export default {
       });
       return;
     }
-    this.setData({ status: 'ready', resultTitle: '操作完成', resultMessage: '服务端已处理该请求。' });
+    const fallbackText = extractToolText(intent.toolResult);
+    if (fallbackText) {
+      this.setData({
+        status: 'ready',
+        resultTitle: toolName || '执行结果',
+        resultMessage: fallbackText
+      });
+      return;
+    }
+    this.setData({ status: 'error', errorText: '服务没有返回可展示的结果。' });
   },
 
   // Server 返回 ISO-8601（UTC），显示时转本地时区（如北京时间）
@@ -236,15 +284,23 @@ export default {
   <view class="card-shell">
     <text class="card-version">一刻 v{{ softwareVersion }} · build {{ buildId }}</text>
 
-    <view class="card-head">
+    <view class="card-head" ink:if="{{ !hasA2ui }}">
       <text class="eyebrow">记账统计 · {{ periodLabel }}</text>
       <text class="count">{{ count }} 笔</text>
     </view>
 
-    <text class="status-line" ink:if="{{ status === 'loading' }}">正在从记账服务获取数据…</text>
+    <text class="status-line" ink:if="{{ status === 'loading' }}">正在从一刻服务获取数据…</text>
     <text class="error-line" ink:if="{{ status === 'error' }}">{{ errorText }}</text>
 
-    <view class="metrics">
+    <a2ui
+      ink:if="{{ hasA2ui }}"
+      id="mcp-a2ui"
+      commands="{{ a2uiCommands }}"
+      class="a2ui-surface"
+    ></a2ui>
+    <text class="a2ui-fallback" ink:if="{{ hasA2ui && a2uiFallbackText }}">{{ a2uiFallbackText }}</text>
+
+    <view class="metrics" ink:if="{{ !hasA2ui }}">
       <view class="metric">
         <text class="metric-label">支出</text>
         <text class="metric-value">{{ expenseLabel }}</text>
@@ -259,19 +315,19 @@ export default {
       </view>
     </view>
 
-    <view class="cats" ink:if="{{ topCategories.length }}">
+    <view class="cats" ink:if="{{ !hasA2ui && topCategories.length }}">
       <view class="cat" ink:for="{{ topCategories }}" ink:key="category">
         <text class="cat-name">{{ item.category }}</text>
         <text class="cat-amount">{{ item.amountLabel }}</text>
       </view>
     </view>
 
-    <view ink:if="{{ resultTitle }}">
+    <view ink:if="{{ !hasA2ui && resultTitle }}">
       <text class="result-title">{{ resultTitle }}</text>
       <text class="message">{{ resultMessage }}</text>
     </view>
 
-    <button class="action" bindtap="openDetail">查看详情</button>
+    <button class="action" ink:if="{{ !hasA2ui }}" bindtap="openDetail">查看详情</button>
   </view>
 </page>
 
@@ -314,6 +370,18 @@ export default {
 }
 
 .count {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.a2ui-surface {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.a2ui-fallback {
   color: var(--color-text-secondary);
   font-size: 10px;
   line-height: 14px;

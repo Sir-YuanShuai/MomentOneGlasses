@@ -500,3 +500,13 @@ index 对话区**（对话式交互，不跳转；`mcpCard` 内嵌渲染：总�
 #### 关键时序教训
 - 宿主对话流卡片环境的渲染/执行行为**不稳定且不可推断**（探针行曾导致整卡空白、onLoad 是否执行曾反复）；结论必须以 **Server 侧日志/审计**为准，不要以卡片 UI 表现为准。
 - 每次实机测试要**立即**对照 Server 日志（周期 `prompts/list` 客户端会刷屏，需按时间窗口精确过滤）。
+
+
+## 13. A2UI over MCP 通用渲染（2026-08-08）
+
+- 标准 MCP Apps HTML 继续服务支持 iframe 的 Host；眼镜端消费 `application/a2ui+json` EmbeddedResource。
+- Server 输出标准 A2UI v0.9/v0.9.1；`services/a2ui-adapter.js` 做一次性 Rokid 兼容。
+- 页面工具 schema 只接收 `utterance`；呈现降级顺序为 A2UI → TextContent → 旧 bookkeeping 摘要。
+- `callToolResult()` 保留完整 MCP 结果；agent loop 先 `tools/list`，优先 Server `agent_plan`，旧 Server 兼容 `bookkeeping_plan`。
+- Gate A 验证协议转换；Gate B 验证 AIUI 编译；Gate C 验证 standalone 全链路；前三项通过后只做一次真机验收。
+- 新工具使用既有 Catalog 组件时无需更新 AIX；新增原生组件或破坏性 Catalog 大版本仍需客户端升级。

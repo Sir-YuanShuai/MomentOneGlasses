@@ -48,11 +48,11 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
 
 参考：AIUI 官方文档 `0-guide/bundle/aix.md` — "每个 AIX 包在打包时都会自动生成一个唯一的 UUID `VERSION` 文件，用于版本校验和热更新。"
 
-## 产品边界（纯 MCP 记账客户端）
+## 产品边界（纯远程 MCP 客户端）
 
-眼镜端**只做 MCP 客户端适配**，无本地业务：
+眼镜端**只做远程 MCP 客户端与 A2UI 适配**，无本地业务：
 
-- **做**：设备绑定（扫码 QR Binding）、语音入口、记账预路由（话术门槛 → 远程 `bookkeeping_plan` → 执行远程工具）、结果卡片/全屏详情页渲染。
+- **做**：设备绑定、语音入口、`tools/list` 动态发现、Server `agent_plan` 规划、远程工具执行、A2UI/文本结果渲染；旧 Server 兼容 `bookkeeping_plan`。
 - **不做**（历史功能已移除，禁止回加）：本地 Moment 存储（`memory-repository` / `memory-store` / `moment-ai`）、本地记录流程（拍照补记/录音）、本地意图规则（`intent-router`）、本地工具声明（`services/tools`、`prompts`）、设备端 LLM 工具规划（`LanguageModel`）。
 - 工具定义与提示词均由远程 Server 提供（MCP tools/prompts），眼镜端不内置。
 
@@ -69,7 +69,8 @@ AIUI 要求每个 `.aix` 包内必须包含 `VERSION` 文件，内容为**唯一
   - `services/config.js`：Server 地址、OAuth/MCP 端点、存储 key 常量
   - `services/binding.js`：设备绑定服务（deviceId 管理、绑定状态、请求绑定、token 刷新、清除绑定、二维码解析）
   - `services/mcp-client.js`：轻量 MCP 客户端（手写 JSON-RPC 2.0，复用 QR Binding token，401 刷新重试、会话过期重建、prompts）
-  - `services/agent-loop.js`：记账预路由（`bookkeeping_plan` → 执行 → 结果意图）
+  - `services/agent-loop.js`：动态发现 → `agent_plan` → 校验并执行；旧 Server 兼容 `bookkeeping_plan`
+  - `services/a2ui-adapter.js`：标准 A2UI v0.9/v0.9.1 → Rokid A2UI 命令兼容与安全降级
   - `services/bookkeeping-gate.js`：记账话术门槛（纯函数，可单测）
   - `services/image-decode.js`：AIX 内置的 PNG/JPEG → RGBA 解码器（由打包脚本生成）
   - `services/qr-fallback.js`：本地 QR 像素解码兜底（由打包脚本生成）
@@ -81,7 +82,7 @@ AIUI 官方相机链路是 `wx.createCameraContext().takePhoto()` 返回一次�
 ```
 pages/index/index.ink       # 唯一入口；未绑定时显示绑定门，已绑定时进入记账对话
 pages/scan/scan.ink         # 扫码绑定页，自动打开相机扫码 → 调 requestBinding 换 token
-pages/cards/mcp-summary.ink # MCP 记账结果卡片（总结置顶 + 查看详情）
+pages/cards/bookkeeping-card.ink # 兼容路由名；通用 MCP/A2UI 对话流卡片
 pages/mcp/detail.ink        # MCP 全屏可滚动记账详情页（chart + 明细 + 操作按钮）
 pages/cards/account-unbind.ink  # 解绑账号确认卡片
 ```
